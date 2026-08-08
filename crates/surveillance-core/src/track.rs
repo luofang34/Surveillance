@@ -3,6 +3,10 @@
 use aero_link::{AirGroundState, EmergencyState};
 use serde::{Deserialize, Serialize};
 
+use alloc::vec::Vec;
+
+use crate::association::CorrelationEvidence;
+use crate::cpr::CprHistory;
 use crate::freshness::TimedField;
 use crate::identity::IdentitySet;
 use crate::observation::{Callsign, Squawk, VelocityObservation, Wgs84Position};
@@ -169,12 +173,52 @@ impl TrackSnapshot {
 pub struct TrackState {
     /// Exported view of the fused state.
     pub snapshot: TrackSnapshot,
+    pub(crate) cpr: CprHistory,
+    pub(crate) correlation: Vec<CorrelationEvidence>,
+    pub(crate) identity_activity: Vec<IdentityActivity>,
 }
 
 impl From<TrackSnapshot> for TrackState {
     fn from(snapshot: TrackSnapshot) -> Self {
-        Self { snapshot }
+        Self {
+            snapshot,
+            cpr: CprHistory::default(),
+            correlation: Vec::new(),
+            identity_activity: Vec::new(),
+        }
     }
+}
+
+impl TrackState {
+    /// Record that `key` was just observed, so a track carrying several
+    /// identities knows which of them is still being fed.
+    pub(crate) fn mark_identity_seen(&mut self, key: TrackKey, at_micros: u64) {
+        for activity in &mut self.identity_activity {
+            if activity.key == key {
+                activity.last_observed_at_micros = activity.last_observed_at_micros.max(at_micros);
+                return;
+            }
+        }
+        self.identity_activity.push(IdentityActivity {
+            key,
+            last_observed_at_micros: at_micros,
+        });
+    }
+
+    /// When `key` was last observed, if ever.
+    pub(crate) fn identity_last_seen(&self, key: TrackKey) -> Option<u64> {
+        self.identity_activity
+            .iter()
+            .find(|activity| activity.key == key)
+            .map(|activity| activity.last_observed_at_micros)
+    }
+}
+
+/// When one of a track's identities was last observed.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct IdentityActivity {
+    pub(crate) key: TrackKey,
+    pub(crate) last_observed_at_micros: u64,
 }
 
 /// One engine output.
@@ -222,4 +266,11 @@ impl TrackDelta {
 pub enum RemovalReason {
     /// Every field aged past the retention window.
     Expired,
+    /// Correlation established that this track and another describe one
+    /// aircraft. A consumer transfers what it was showing to `into` rather
+    /// than dropping it: the aircraft did not disappear, its duplicate did.
+    Merged {
+        /// Track that absorbed this one and carries its history onward.
+        into: TrackId,
+    },
 }

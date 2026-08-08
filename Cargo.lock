@@ -121,6 +121,7 @@ name = "surveillance-core"
 version = "0.1.0"
 dependencies = [
  "aero-link",
+ "libm",
  "serde",
  "serde_json",
  "thiserror",

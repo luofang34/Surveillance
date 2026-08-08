@@ -173,8 +173,26 @@ Kinematic correlation requires sustained agreement — positions consistent
 with both tracks' integrity bounds plus velocity and altitude agreement —
 over several consecutive observations inside a bounded window. Hysteresis
 ensures a single coincidental alignment cannot merge tracks and a single
-outlier cannot split them. Callsign equality is never sufficient evidence
-for any merge.
+outlier cannot split them: association needs a run of consecutive
+agreements, dissociation needs a run of consecutive disagreements, and each
+resets the other's count. Callsign equality is never sufficient evidence for
+any merge.
+
+A pair that cannot be judged — one side has no fresh position — accumulates
+neither agreement nor disagreement, so an unobservable interval is never
+read as a mismatch. Correlation is evaluated only when a position is
+applied, which keeps a stream of identity-only receptions free of
+correlation cost.
+
+When correlation joins two tracks, the track a consumer has watched longest
+survives with its `TrackId`, absorbs the other's identities and fused fields
+through the ordinary precedence rules, and re-keys to the most authoritative
+identity available — a globally unique cooperative address outranks a
+ground-assigned track file or an anonymized one. The absorbed track is
+removed with `RemovalReason::Merged`, which names the survivor so a consumer
+transfers what it was displaying rather than deleting it: the aircraft did
+not disappear, its duplicate did. Equal creation times fall back to identity
+order, so a merge never depends on which side reported first.
 
 Identity transitions preserve history in both directions:
 
@@ -192,10 +210,21 @@ Both directions are evidence-driven and reversible without identity churn.
 - Global airborne CPR lives in the engine because it requires even/odd
   history across receptions. A decode is accepted only after validating pair
   age, parity, latitude zone consistency, and decoded range plausibility.
+  Each gate has its own typed rejection, so a refused position says why.
+- Range plausibility bounds travel by elapsed time against a speed limit plus
+  a fixed allowance, so a long gap widens the bound rather than forcing a
+  false rejection, and a newly acquired target is not rejected for
+  uncertainty alone.
 - Local CPR is a separate path that requires a trustworthy reference
-  position; it never silently substitutes for a failed global decode.
-- Surface CPR is likewise reference-dependent and kept distinct from the
-  airborne path.
+  position. It is not a fallback for a pair that decoded into inconsistent
+  zones or failed plausibility: a disagreeing pair is evidence something is
+  wrong, and resolving it against a reference would launder that away. It
+  applies only where no pair exists to decode from — a track whose position
+  is already established and fresh resolves a single frame against its own
+  last position.
+- Surface CPR is reference-dependent in every case, because its zones repeat
+  once per quadrant. The reference is the track's own fresh position, else a
+  caller-supplied reference position the engine holds as plain data.
 - UAT positions arrive already decoded; they enter fusion directly with
   their quality indicators.
 - A track may exist without any position: a Mode S target can supply only
@@ -214,8 +243,14 @@ and provenance (link, namespace, receiver source). Rules:
   last-writer-wins. An older observation arriving later cannot overwrite a
   newer applied value.
 - Link precedence prefers direct reception over rebroadcast when both are
-  fresh and of comparable quality (direct ADS-B over ADS-R over TIS-B), but
-  a fresh rebroadcast beats a stale direct value.
+  fresh and of comparable quality (direct ADS-B over Mode S reply over ADS-R
+  over TIS-B), but a fresh rebroadcast beats a stale direct value.
+- The decision procedure evaluates, in order: reject a strictly older
+  observation; accept anything over a value past its freshness window;
+  between fresh values prefer the higher link rank; at equal rank prefer the
+  newer observation; and separate two observations of the same instant by
+  quality, where better means no indicator is worse and at least one is
+  better.
 - Duplicate observations (same content from multiple receivers) update
   provenance and freshness without generating spurious deltas.
 - Units are explicit in field names and newtypes: WGS84 degrees, feet,
@@ -247,7 +282,15 @@ and provenance (link, namespace, receiver source). Rules:
 - Coasting is entered deterministically inside `advance_time` when defining
   fields lapse; the track remains visible and labeled as coasting.
 - Removal is deterministic and driven only by `advance_time`; the engine
-  never expires state as a side effect of ingestion order.
+  never expires state as a side effect of ingestion order. Removal releases
+  every identity the track occupied, so a later observation for any of them
+  starts a new track rather than resurrecting a dangling index entry.
+- A merge also removes a track, but for the opposite reason: `RemovalReason`
+  distinguishes a target that aged out from a duplicate that was absorbed,
+  and only the former means the aircraft is gone.
+- Demotion is evaluated in `advance_time` too: when the primary identity has
+  been silent past its window while another associated identity keeps
+  reporting, the track re-keys to the identity still being fed.
 - All lifecycle transitions are pure functions of observation content and
   the caller-supplied monotonic clock, which makes replay bit-reproducible.
 

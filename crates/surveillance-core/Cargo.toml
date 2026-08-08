@@ -12,6 +12,7 @@ std = ["aero-link/std", "serde/std", "thiserror/std"]
 
 [dependencies]
 aero-link = { workspace = true }
+libm = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 
