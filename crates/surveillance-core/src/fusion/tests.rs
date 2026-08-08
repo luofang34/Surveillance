@@ -1,6 +1,6 @@
 #![allow(clippy::expect_used, clippy::panic)]
 
-use aero_link::{Band, ReceiverSource};
+use crate::source::{Band, SourceRef};
 
 use crate::freshness::{FieldProvenance, FieldQuality, TimedField};
 use crate::fusion::{FieldUpdate, fuse, link_rank};
@@ -23,7 +23,7 @@ fn field_with_quality(
         value,
         at,
         quality,
-        FieldProvenance::new(link, AddressNamespace::Icao, ReceiverSource::default()),
+        FieldProvenance::new(link, AddressNamespace::Icao, SourceRef::default()),
     )
 }
 

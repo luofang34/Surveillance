@@ -7,14 +7,11 @@
     clippy::field_reassign_with_default
 )]
 
-use aero_link::{
-    AirGroundState, CallsignKind, EmergencyState, ReceiverSource, SourceTransport,
-    VerticalRateSource,
-};
 use surveillance_core::{
-    AddressNamespace, CURRENT_TRACK_SCHEMA_VERSION, Callsign, FieldProvenance, FieldQuality,
-    Squawk, TimedField, TrackDelta, TrackId, TrackKey, TrackRecord, TrackRecordHeader,
-    TrackSchemaError, TrackSnapshot, TrafficLink, VelocityObservation, Wgs84Position,
+    AddressNamespace, AirGroundState, CURRENT_TRACK_SCHEMA_VERSION, Callsign, CallsignKind,
+    EmergencyState, FieldProvenance, FieldQuality, SourceRef, SourceTransport, Squawk, TimedField,
+    TrackDelta, TrackId, TrackKey, TrackRecord, TrackRecordHeader, TrackSchemaError, TrackSnapshot,
+    TrafficLink, VelocityObservation, VerticalRateSource, Wgs84Position,
 };
 
 const CREATED_FIXTURE: &str = include_str!("fixtures/track_v1_created.json");
@@ -26,7 +23,7 @@ fn adsb_provenance() -> FieldProvenance {
     FieldProvenance::new(
         TrafficLink::Adsb1090,
         AddressNamespace::Icao,
-        ReceiverSource::new(1, SourceTransport::Usb),
+        SourceRef::new(1, SourceTransport::Usb),
     )
 }
 

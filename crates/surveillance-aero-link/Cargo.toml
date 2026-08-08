@@ -1,0 +1,23 @@
+[package]
+name = "surveillance-aero-link"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "Normalizes aero-link radio receptions into canonical Surveillance observations"
+license = "MIT"
+
+[features]
+default = []
+std = ["aero-link/std", "surveillance-core/std", "thiserror/std"]
+
+[dependencies]
+aero-link = { workspace = true }
+libm = { workspace = true }
+surveillance-core = { version = "0.1.0", path = "../surveillance-core", default-features = false }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

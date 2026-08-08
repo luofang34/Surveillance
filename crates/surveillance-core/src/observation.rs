@@ -1,23 +1,31 @@
-//! Normalized traffic observations and their provenance.
+//! Canonical traffic observations and their provenance.
 //!
-//! One [`TrafficObservation`] is one normalized traffic measurement produced
-//! from the borrowed `aero_link::ReceptionEvent::traffic()` projection. It
-//! carries the reported over-the-air identity, the originating link class,
-//! monotonic reception time, receiver provenance, and only the measured
-//! fields the reception actually supplied — absence stays explicit.
+//! One [`TrafficObservation`] is one normalized traffic measurement, whatever
+//! produced it: a local radio, an installed panel, a network provider, a
+//! replay, or a simulator. It carries the reported over-the-air identity, the
+//! link class it came through, monotonic ingress time, source provenance, and
+//! only the measured fields the report actually supplied — absence stays
+//! explicit.
+//!
+//! Every type here belongs to Surveillance. Translating one radio reception
+//! into these terms is an adapter's job, so no decoder vocabulary reaches a
+//! consumer of the engine.
 
 use alloc::string::String;
 
-use aero_link::{
-    AirGroundState, AirspeedKind, Band, CallsignKind, EmergencyState, HeadingReference,
-    ReceiverSource, VerticalRateSource,
-};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::cpr::CprFrame;
 use crate::freshness::FieldQuality;
+use crate::source::{Band, SourceRef};
 use crate::track::TrackKey;
+
+pub use status::{AirGroundState, CallsignKind, EmergencyState};
+pub use velocity::{AirspeedKind, HeadingReference, VelocityObservation, VerticalRateSource};
+
+mod status;
+mod velocity;
 
 #[cfg(test)]
 mod tests;
@@ -29,8 +37,8 @@ pub struct TrafficObservation {
     /// Monotonic reception time in microseconds; orders, ages, and expires
     /// fields. Never UTC.
     pub received_at_micros: u64,
-    /// Runtime-local receiver that produced the observation.
-    pub source: ReceiverSource,
+    /// Runtime-local input that delivered the observation.
+    pub source: SourceRef,
     /// Originating link class; the fusion-precedence axis.
     pub link: TrafficLink,
     /// Over-the-air identity this measurement reports.
@@ -65,7 +73,7 @@ impl TrafficObservation {
     #[must_use]
     pub fn new(
         received_at_micros: u64,
-        source: ReceiverSource,
+        source: SourceRef,
         link: TrafficLink,
         key: TrackKey,
     ) -> Self {
@@ -156,41 +164,6 @@ pub struct Wgs84Position {
     pub latitude_deg: f64,
     /// Longitude in degrees, positive east.
     pub longitude_deg: f64,
-}
-
-/// Horizontal and vertical movement reported by one observation.
-///
-/// Targets report either a ground-referenced velocity (speed over ground and
-/// true track) or an air-referenced one (airspeed and heading); absent parts
-/// stay absent rather than being derived.
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
-#[non_exhaustive]
-pub struct VelocityObservation {
-    /// Speed over ground in knots.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub ground_speed_kt: Option<f64>,
-    /// True track angle in degrees clockwise from geographic north.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub track_angle_deg_true: Option<f64>,
-    /// Airspeed in knots when the target reports airspeed instead of ground
-    /// velocity.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub airspeed_kt: Option<f64>,
-    /// Whether `airspeed_kt` is true or indicated airspeed.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub airspeed_kind: Option<AirspeedKind>,
-    /// Heading in degrees when the target reports heading instead of track.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub heading_deg: Option<f64>,
-    /// Reference direction (true or magnetic north) for `heading_deg`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub heading_reference: Option<HeadingReference>,
-    /// Vertical rate in feet per minute, positive climbing.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub vertical_rate_fpm: Option<i32>,
-    /// Sensor source (barometric or geometric) for `vertical_rate_fpm`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub vertical_rate_source: Option<VerticalRateSource>,
 }
 
 /// Flight identification reported by the target.

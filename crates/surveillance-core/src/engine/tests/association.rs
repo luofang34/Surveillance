@@ -2,7 +2,7 @@
 
 use alloc::vec::Vec;
 
-use aero_link::Band;
+use crate::source::Band;
 
 use crate::engine::tests::{ICAO, engine, ingest, observation};
 use crate::engine::{EngineConfig, SurveillanceEngine};

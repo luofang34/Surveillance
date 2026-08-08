@@ -1,6 +1,6 @@
 #![allow(clippy::expect_used, clippy::panic)]
 
-use aero_link::ReceiverSource;
+use crate::source::SourceRef;
 
 use crate::freshness::{FieldProvenance, FieldQuality, TimedField};
 use crate::observation::TrafficLink;
@@ -10,7 +10,7 @@ fn provenance() -> FieldProvenance {
     FieldProvenance::new(
         TrafficLink::Adsb1090,
         AddressNamespace::Icao,
-        ReceiverSource::default(),
+        SourceRef::default(),
     )
 }
 

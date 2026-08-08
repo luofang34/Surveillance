@@ -5,7 +5,7 @@
 //! supplied it; [`FreshnessPolicy`] holds the per-field windows the engine
 //! evaluates deterministically inside `advance_time`.
 
-use aero_link::ReceiverSource;
+use crate::source::SourceRef;
 use serde::{Deserialize, Serialize};
 
 use crate::observation::TrafficLink;
@@ -97,14 +97,14 @@ pub struct FieldProvenance {
     pub link: TrafficLink,
     /// Address namespace of the key the observation reported.
     pub namespace: AddressNamespace,
-    /// Receiver input that produced the observation.
-    pub source: ReceiverSource,
+    /// Runtime-local input that delivered the observation.
+    pub source: SourceRef,
 }
 
 impl FieldProvenance {
     /// Record where a fused value came from.
     #[must_use]
-    pub fn new(link: TrafficLink, namespace: AddressNamespace, source: ReceiverSource) -> Self {
+    pub fn new(link: TrafficLink, namespace: AddressNamespace, source: SourceRef) -> Self {
         Self {
             link,
             namespace,

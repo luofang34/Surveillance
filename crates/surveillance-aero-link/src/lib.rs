@@ -1,5 +1,10 @@
-//! Turning one borrowed `aero-link` traffic projection into a
+//! Turning one borrowed `aero-link` traffic projection into a canonical
 //! [`TrafficObservation`].
+//!
+//! This crate is the seam between one radio reception and the source-neutral
+//! engine. `surveillance-core` knows nothing about `aero-link`, so a
+//! consumer that never receives RF never links a decoder; a consumer that
+//! does adds this adapter and nothing changes in the engine.
 //!
 //! Normalization is stateless and synchronous: it classifies the reported
 //! identity into an address namespace and a link class, converts measured
@@ -13,29 +18,33 @@
 //! rather than a target, produces a typed error instead of a fabricated
 //! identity.
 
+#![cfg_attr(not(feature = "std"), no_std)]
+
+extern crate alloc;
+
 use aero_link::{TrafficPayload, TrafficProjection};
+use surveillance_core::{InvalidSquawk, TrafficObservation};
 use thiserror::Error;
 
-use crate::observation::{InvalidSquawk, TrafficObservation};
-
 mod adsb1090;
+mod source;
 mod uat;
+mod vocabulary;
 
 #[cfg(test)]
 mod tests;
 
-impl TrafficObservation {
-    /// Normalize one borrowed traffic projection.
-    ///
-    /// Non-traffic receptions never reach this function: the projection is
-    /// `None` for them, so the caller skips ingestion entirely and engine
-    /// state is untouched.
-    pub fn normalize(projection: &TrafficProjection<'_>) -> Result<Self, NormalizeError> {
-        match projection.payload {
-            TrafficPayload::Adsb1090(message) => adsb1090::normalize(projection, message),
-            TrafficPayload::Uat978(reception) => uat::normalize(projection, reception),
-            _ => Err(NormalizeError::UnsupportedPayload),
-        }
+/// Normalize one borrowed traffic projection.
+///
+/// Non-traffic receptions never reach this function: `ReceptionEvent::traffic`
+/// is `None` for them, so the caller skips ingestion entirely and engine state
+/// is untouched. That is the whole traffic-only contract — weather never has a
+/// path in.
+pub fn normalize(projection: &TrafficProjection<'_>) -> Result<TrafficObservation, NormalizeError> {
+    match projection.payload {
+        TrafficPayload::Adsb1090(message) => adsb1090::normalize(projection, message),
+        TrafficPayload::Uat978(reception) => uat::normalize(projection, reception),
+        _ => Err(NormalizeError::UnsupportedPayload),
     }
 }
 

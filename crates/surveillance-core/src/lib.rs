@@ -1,7 +1,10 @@
-//! Portable aircraft tracking over `aero-link` traffic receptions.
+//! Source-neutral aircraft tracking over canonical traffic observations.
 //!
-//! `surveillance-core` converts normalized traffic observations into coherent
-//! aircraft tracks. It owns state that spans receptions — track identity
+//! `surveillance-core` converts canonical traffic observations into coherent
+//! aircraft tracks, whatever produced them: a local radio, an installed
+//! panel, a network provider, a replay, or a simulator. Translating one radio
+//! reception into canonical terms belongs to a link adapter, so no decoder
+//! vocabulary reaches a consumer of the engine. It owns state that spans receptions — track identity
 //! across address namespaces, global CPR reconstruction, per-field freshness
 //! and provenance, cross-link fusion, coasting, and expiration — and emits
 //! [`TrackDelta`] and [`TrackSnapshot`] values through a versioned schema.
@@ -23,9 +26,9 @@ pub mod freshness;
 pub mod fusion;
 pub mod geodesy;
 pub mod identity;
-pub mod normalize;
 pub mod observation;
 pub mod schema;
+pub mod source;
 pub mod track;
 
 pub use association::{CorrelationPolicy, agrees, may_correlate, namespace_rank};
@@ -34,15 +37,16 @@ pub use engine::{EngineConfig, IngestError, SurveillanceEngine};
 pub use freshness::{FieldProvenance, FieldQuality, FreshnessPolicy, TimedField};
 pub use fusion::{FieldUpdate, fuse, link_rank};
 pub use identity::IdentitySet;
-pub use normalize::NormalizeError;
 pub use observation::{
-    Callsign, InvalidSquawk, PositionObservation, Squawk, TrafficLink, TrafficObservation,
-    VelocityObservation, Wgs84Position,
+    AirGroundState, AirspeedKind, Callsign, CallsignKind, EmergencyState, HeadingReference,
+    InvalidSquawk, PositionObservation, Squawk, TrafficLink, TrafficObservation,
+    VelocityObservation, VerticalRateSource, Wgs84Position,
 };
 pub use schema::{
     CURRENT_TRACK_SCHEMA_VERSION, TimeCorrespondence, TrackRecord, TrackRecordHeader,
     TrackSchemaError,
 };
+pub use source::{Band, SourceRef, SourceTransport};
 pub use track::{
     AddressNamespace, RemovalReason, TrackDelta, TrackId, TrackKey, TrackPhase, TrackSnapshot,
     TrackState,

@@ -1,6 +1,6 @@
 #![allow(clippy::expect_used, clippy::panic)]
 
-use aero_link::{Band, ReceiverSource};
+use crate::source::{Band, SourceRef};
 
 use crate::observation::{Callsign, InvalidSquawk, Squawk, TrafficLink, TrafficObservation};
 use crate::track::{AddressNamespace, TrackKey};
@@ -53,7 +53,7 @@ fn traffic_link_reports_band_and_rebroadcast() {
 fn new_observation_reports_no_measured_fields() {
     let key = TrackKey::new(AddressNamespace::Icao, 0x00AC_82EC);
     let observation =
-        TrafficObservation::new(5_000, ReceiverSource::default(), TrafficLink::Adsb1090, key);
+        TrafficObservation::new(5_000, SourceRef::default(), TrafficLink::Adsb1090, key);
 
     assert_eq!(observation.key, key);
     assert_eq!(observation.position, None);

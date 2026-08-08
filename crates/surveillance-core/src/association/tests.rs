@@ -2,7 +2,7 @@
 
 use alloc::vec::Vec;
 
-use aero_link::ReceiverSource;
+use crate::source::SourceRef;
 
 use crate::association::{
     CorrelationEvidence, CorrelationPolicy, agrees, may_correlate, namespace_rank, record,
@@ -19,8 +19,7 @@ fn snapshot(
 ) -> TrackSnapshot {
     let key = TrackKey::new(namespace, 0x0000_0001);
     let mut snapshot = TrackSnapshot::new(TrackId::new(1), key, at);
-    let provenance =
-        FieldProvenance::new(TrafficLink::Adsb1090, namespace, ReceiverSource::default());
+    let provenance = FieldProvenance::new(TrafficLink::Adsb1090, namespace, SourceRef::default());
     snapshot.position = Some(TimedField::new(
         Wgs84Position {
             latitude_deg,
@@ -37,7 +36,7 @@ fn with_altitude(mut snapshot: TrackSnapshot, at: u64, feet: i32) -> TrackSnapsh
     let provenance = FieldProvenance::new(
         TrafficLink::Adsb1090,
         snapshot.key.namespace,
-        ReceiverSource::default(),
+        SourceRef::default(),
     );
     snapshot.pressure_altitude_ft = Some(TimedField::new(
         feet,
@@ -52,7 +51,7 @@ fn with_speed(mut snapshot: TrackSnapshot, at: u64, knots: f64) -> TrackSnapshot
     let provenance = FieldProvenance::new(
         TrafficLink::Adsb1090,
         snapshot.key.namespace,
-        ReceiverSource::default(),
+        SourceRef::default(),
     );
     snapshot.velocity = Some(TimedField::new(
         VelocityObservation {

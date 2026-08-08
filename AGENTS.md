@@ -3,8 +3,9 @@
 ## Primary goal
 
 Build a platform-independent surveillance library that converts structured
-aviation traffic observations into coherent aircraft tracks. It consumes the
-traffic subset of `aero_link::ReceptionEvent` and emits runtime-neutral
+aviation traffic observations into coherent aircraft tracks. It accepts
+canonical observations from local radios, installed panels, network
+providers, replay, and simulation alike, and emits runtime-neutral
 `TrackDelta` and `TrackSnapshot` values.
 
 Surveillance must outlive every receiver, MCU, operating system, USB stack,
@@ -26,41 +27,53 @@ The core must not depend on or contain:
 - General event fan-out, recording, replay storage, or application routing.
 
 Those concerns belong to `../aero-link`, a weather service, or platform
-application crates. Depend only on the portable API:
+application crates.
+
+`surveillance-core` depends on no link decoder at all. Translating one radio
+reception into canonical terms is an adapter's job, so the engine's public
+model never names a receiver contract and a non-radio source never has to
+imitate one:
 
 ```toml
 [dependencies]
-aero-link = { path = "../aero-link", default-features = false }
+surveillance-core = { path = "crates/surveillance-core" }
+# Only where RF is actually received:
+surveillance-aero-link = { path = "crates/surveillance-aero-link" }
 ```
 
-An application may enable `aero-link/std`, but Surveillance core must not
-require `aero-link/host` or an Apple/board adapter.
+`scripts/check-boundaries.sh` gates this: it fails if the engine gains a
+dependency edge to a decoder, mentions one in its sources, or if the umbrella
+pulls the adapter in by default.
 
 ## Input adapter
 
 Do not make the stateful tracking engine ingest every aviation product.
 `aero-link` already exposes the traffic subset of one event as a borrowed
 projection through `ReceptionEvent::traffic()`; FIS-B and other non-traffic
-uplink content never appear in it. Surveillance defines a small, synchronous
-adapter that normalizes one projection into its own typed `TrafficObservation`:
+uplink content never appear in it. The `surveillance-aero-link` crate is a
+small, synchronous adapter that normalizes one projection into the engine's
+canonical `TrafficObservation`:
 
 ```rust,ignore
 if let Some(projection) = event.traffic() {
-    let observation = TrafficObservation::normalize(&projection)?;
+    let observation = surveillance_aero_link::normalize(&projection)?;
     engine.ingest(observation, |delta| consume_track_delta(delta))?;
 }
 ```
 
+Other sources have their own adapters and reach the same `ingest` call. The
+engine cannot tell them apart except through the provenance they declare.
+
 The adapter may understand Mode S/ADS-B, UAT traffic, ADS-R, and TIS-B message
 types, and it classifies through `aero-link`'s typed fields — address
-qualifiers, downlink formats, DF 18 control-field semantics (aero-link#17) —
+qualifiers, downlink formats, and the classified extended-squitter address —
 rather than parsing raw message bytes. The application router remains
 responsible for delivering the same reception to a weather service, recorder,
 diagnostics service, or multiple consumers.
 
-The normalized measurement type name `TrafficObservation` belongs to
-Surveillance; `aero-link`'s borrowed projection type takes a distinct name
-(rename tracked by aero-link#18).
+The canonical measurement type `TrafficObservation` belongs to Surveillance
+and names no decoder vocabulary; `aero-link`'s borrowed projection is
+`TrafficProjection`.
 
 ## Ownership of behavior
 
@@ -215,8 +228,8 @@ than fabricating missing surveillance values.
 
 `TrackDelta` and `TrackSnapshot` cross process and machine boundaries — native
 apps, a web viewer, recorders — so their serialization is part of the core
-contract, not an optional feature. Follow the same pattern as `aero-link`'s
-versioned reception records: a versioned envelope with private fields,
+contract, not an optional feature. Use a versioned envelope with private
+fields,
 validation before access, and golden round-trip fixtures with bit-exact float
 values. Additive growth and version-bump rules are documented alongside the
 schema.
@@ -256,7 +269,7 @@ arrives.
   features.
 - The core and its adapters must build for `wasm32-unknown-unknown` so a web
   viewer can embed the engine or decode exported streams; keep the target in
-  CI (mirrors aero-link#19).
+  CI.
 - `TrackDelta` and `TrackSnapshot` require `serde` because the exported schema
   is a core contract; purely internal types keep it optional.
 - Library error enums use `thiserror`; `anyhow` is limited to CLI entry points.
@@ -271,6 +284,7 @@ Use domain names and the `foo.rs` plus `foo/` layout; do not use `mod.rs`.
 
 ```text
 crates/
+  surveillance-aero-link/
   surveillance-core/
     src/
       lib.rs

@@ -2,7 +2,7 @@
 
 use alloc::vec::Vec;
 
-use aero_link::{ReceiverSource, SourceTransport};
+use crate::source::{SourceRef, SourceTransport};
 
 use crate::engine::{EngineConfig, IngestError, SurveillanceEngine};
 use crate::observation::{Callsign, Squawk, TrafficLink, TrafficObservation};
@@ -15,8 +15,8 @@ mod position;
 pub(super) const ICAO: TrackKey = TrackKey::new(AddressNamespace::Icao, 0x00AC_82EC);
 pub(super) const OTHER_ICAO: TrackKey = TrackKey::new(AddressNamespace::Icao, 0x0040_621D);
 
-pub(super) fn receiver(id: u32) -> ReceiverSource {
-    ReceiverSource::new(id, SourceTransport::Usb)
+pub(super) fn receiver(id: u32) -> SourceRef {
+    SourceRef::new(id, SourceTransport::Usb)
 }
 
 pub(super) fn observation(at: u64, key: TrackKey, link: TrafficLink) -> TrafficObservation {
@@ -163,7 +163,7 @@ fn equal_addresses_in_different_namespaces_stay_distinct_tracks() {
             1_100,
             track_file,
             TrafficLink::Tisb {
-                band: aero_link::Band::Uat978,
+                band: crate::source::Band::Uat978,
             },
         ),
     );

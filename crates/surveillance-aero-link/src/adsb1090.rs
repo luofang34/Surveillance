@@ -1,19 +1,20 @@
 //! Normalizing 1090 MHz Mode S and extended-squitter receptions.
 
 use aero_link::{
-    Adsb1090Message, AltitudeKind, Band, ExtendedSquitter, ExtendedSquitterAddress,
+    Adsb1090Message, AltitudeKind, ExtendedSquitter, ExtendedSquitterAddress,
     ExtendedSquitterMessage, IcaoAddressStatus, ModeSMessage, TrafficProjection,
 };
-
-use crate::cpr::{CprFormat, CprFrame};
-use crate::normalize::NormalizeError;
-use crate::observation::{
-    Callsign, PositionObservation, Squawk, TrafficLink, TrafficObservation, VelocityObservation,
+use surveillance_core::{
+    AddressNamespace, Band, Callsign, CprFormat, CprFrame, PositionObservation, Squawk, TrackKey,
+    TrafficLink, TrafficObservation, VelocityObservation,
 };
-use crate::track::{AddressNamespace, TrackKey};
+
+use crate::NormalizeError;
+use crate::source::source_ref;
+use crate::vocabulary;
 
 /// Normalize one 1090 MHz reception.
-pub(super) fn normalize(
+pub(crate) fn normalize(
     projection: &TrafficProjection<'_>,
     message: &Adsb1090Message,
 ) -> Result<TrafficObservation, NormalizeError> {
@@ -23,7 +24,7 @@ pub(super) fn normalize(
             let (key, link) = classify_squitter(squitter)?;
             let mut observation = TrafficObservation::new(
                 projection.received_at_micros,
-                projection.source,
+                source_ref(projection.source),
                 link,
                 key,
             );
@@ -38,7 +39,7 @@ pub(super) fn normalize(
             )?;
             let mut observation = TrafficObservation::new(
                 projection.received_at_micros,
-                projection.source,
+                source_ref(projection.source),
                 TrafficLink::ModeS,
                 key,
             );
@@ -148,17 +149,16 @@ fn apply_squitter(
                 position.cpr_latitude,
                 position.cpr_longitude,
             )));
-            observation.velocity = Some(VelocityObservation {
-                ground_speed_kt: position.ground_speed_knots,
-                track_angle_deg_true: position.ground_track_degrees,
-                ..VelocityObservation::default()
-            });
+            let mut velocity = VelocityObservation::default();
+            velocity.ground_speed_kt = position.ground_speed_knots;
+            velocity.track_angle_deg_true = position.ground_track_degrees;
+            observation.velocity = Some(velocity);
         }
         ExtendedSquitterMessage::AirborneVelocity(velocity) => {
             apply_velocity(observation, velocity);
         }
         ExtendedSquitterMessage::AircraftStatus(status) => {
-            observation.emergency = Some(status.emergency_state);
+            observation.emergency = Some(vocabulary::emergency(status.emergency_state));
             observation.squawk = Some(Squawk::try_from(status.squawk)?);
         }
         _ => {}
@@ -191,16 +191,17 @@ fn apply_velocity(observation: &mut TrafficObservation, velocity: &aero_link::Ai
         _ => None,
     };
 
-    observation.velocity = Some(VelocityObservation {
-        ground_speed_kt,
-        track_angle_deg_true,
-        airspeed_kt: velocity.airspeed_knots.map(f64::from),
-        airspeed_kind: velocity.airspeed_kind,
-        heading_deg: velocity.heading_degrees.map(f64::from),
-        heading_reference: None,
-        vertical_rate_fpm: velocity.vertical_rate_fpm.map(i32::from),
-        vertical_rate_source: velocity.vertical_rate_source,
-    });
+    let mut fused = VelocityObservation::default();
+    fused.ground_speed_kt = ground_speed_kt;
+    fused.track_angle_deg_true = track_angle_deg_true;
+    fused.airspeed_kt = velocity.airspeed_knots.map(f64::from);
+    fused.airspeed_kind = velocity.airspeed_kind.map(vocabulary::airspeed_kind);
+    fused.heading_deg = velocity.heading_degrees.map(f64::from);
+    fused.vertical_rate_fpm = velocity.vertical_rate_fpm.map(i32::from);
+    fused.vertical_rate_source = velocity
+        .vertical_rate_source
+        .map(vocabulary::vertical_rate_source);
+    observation.velocity = Some(fused);
     observation.quality.nac_v = Some(velocity.navigation_accuracy_category_velocity);
 }
 

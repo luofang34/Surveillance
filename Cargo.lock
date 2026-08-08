@@ -112,16 +112,26 @@ dependencies = [
 name = "surveillance"
 version = "0.1.0"
 dependencies = [
+ "serde_json",
+ "surveillance-aero-link",
+ "surveillance-core",
+]
+
+[[package]]
+name = "surveillance-aero-link"
+version = "0.1.0"
+dependencies = [
  "aero-link",
+ "libm",
  "serde_json",
  "surveillance-core",
+ "thiserror",
 ]
 
 [[package]]
 name = "surveillance-core"
 version = "0.1.0"
 dependencies = [
- "aero-link",
  "libm",
  "serde",
  "serde_json",

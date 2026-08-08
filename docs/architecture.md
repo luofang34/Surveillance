@@ -16,11 +16,11 @@ it. Everything platform-bound is an adapter around the portable core.
 ## Layer ownership
 
 ```text
-aero-link reception (ReceptionEvent + provenance)
-        |
-        |  ReceptionEvent::traffic() borrowed projection
-        v
-observation normalization  (surveillance-core, stateless)
+aero-link reception        panel / provider / replay
+        |                              |
+        |  traffic() projection        |  its own adapter
+        v                              v
+observation normalization  (surveillance-aero-link and siblings, stateless)
         |
         v
 SurveillanceEngine         (surveillance-core, single-writer state)
@@ -58,41 +58,49 @@ it; Surveillance sees only the borrowed traffic projection.
 ## Crate map
 
 ```text
-aero-link (default-features = false)
+surveillance-core ---- no_std + alloc, source-neutral, depends on no decoder
         ^
-        |
-surveillance-core ---- no_std + alloc, the only load-bearing crate
-        ^
-        |------ surveillance (umbrella re-export)
+        |------ surveillance-aero-link (adapter; depends on aero-link)
+        |------ surveillance (umbrella re-export; adapter is opt-in)
         |------ surveillance-gdl90     (planned: TrackSnapshot -> GDL 90 payloads)
         |------ surveillance-geolibre  (planned: TrackDelta -> aircraft features)
         |------ host testing apps      (planned: replay CLI, MapLibre viewer;
                                         std/host feature-gated, never default)
 ```
 
-- `surveillance-core` depends only on `aero-link` (portable API), `serde`,
-  and `thiserror` in portable configurations. It contains no channels, tasks,
-  locks, executors, sockets, timers, or global registries.
+- `surveillance-core` depends only on `libm`, `serde`, and `thiserror`. It
+  names no link decoder, so a consumer fed by a panel or a network provider
+  never links one. It contains no channels, tasks, locks, executors, sockets,
+  timers, or global registries.
+- `surveillance-aero-link` is the RF adapter: it depends on both `aero-link`
+  and the engine, and owns every conversion between the two vocabularies.
+  Because both are foreign to it, those conversions are explicit functions
+  rather than `From` implementations, so a variant added upstream fails to
+  compile here instead of silently arriving as something else.
+- `scripts/check-boundaries.sh` enforces the split in CI.
 - `surveillance` is the umbrella package applications name in `Cargo.toml`.
   Its default features re-export exactly the portable core. Host-side testing
   binaries hang off opt-in features so that library consumers never pay for
   them.
 - Adapter crates depend on core output types only. A renderer or transport
   never imports CPR, fusion, identity, or track internals.
-- Application crates may enable `aero-link/std` or platform adapters; the
-  core must build with `aero-link` default features only.
+- Application crates enable whichever adapters they actually need. The
+  umbrella's `aero-link` feature is opt-in, so a default build links no
+  decoder.
 
 ## Input contract
 
-- `ReceptionEvent.received_at_micros` is runtime-monotonic microseconds and
-  is the only clock. It orders observations, ages fields, and drives
-  expiration. It is not UTC. The engine never reads a wall clock and never
-  starts a timer; time advances only through `advance_time`.
+- An observation's time is runtime-monotonic microseconds in one
+  caller-supplied domain, and is the only clock. It orders observations, ages
+  fields, and drives expiration. It is not UTC. The engine never reads a wall
+  clock and never starts a timer; time advances only through `advance_time`.
 - UAT firmware timestamps and Mode S receiver sample indexes are per-radio
   metadata. They are never compared across radios and never used as a
   cross-radio clock.
-- `ReceiverSource` provenance survives normalization and fusion; every
-  exported field can name the input that supplied it.
+- `SourceRef` provenance survives normalization and fusion; every exported
+  field can name the input that supplied it. It carries a runtime-local
+  identity and the kind of path the observation arrived on — never a
+  receiver, socket, provider, or SDK object.
 - Observations may be duplicated, delayed, or out of order, and several
   receivers may observe the same band. Arrival order is a hint, never a
   correctness assumption: a newer-timestamped value already applied is not
@@ -103,19 +111,22 @@ surveillance-core ---- no_std + alloc, the only load-bearing crate
 
 ## Observation normalization
 
-`surveillance-core` defines a stateless, synchronous adapter from the
-borrowed `ReceptionEvent::traffic()` projection into its own owned
+`surveillance-aero-link` is a stateless, synchronous adapter from the
+borrowed `ReceptionEvent::traffic()` projection into the engine's canonical
 `TrafficObservation`:
 
 ```rust,ignore
 if let Some(projection) = event.traffic() {
-    let observation = TrafficObservation::normalize(&projection)?;
+    let observation = surveillance_aero_link::normalize(&projection)?;
     engine.ingest(observation, |delta| consume(delta))?;
 }
 ```
 
-- One `TrafficObservation` is one normalized traffic measurement: track key,
-  link classification, monotonic time, receiver source, and the optional
+Every other source has its own adapter reaching the same `ingest` call. The
+engine distinguishes them only by the provenance they declare, never by type.
+
+- One `TrafficObservation` is one canonical traffic measurement: track key,
+  link classification, monotonic time, source reference, and the optional
   measured fields (position or undecoded CPR, altitudes, velocity, callsign,
   squawk, quality indicators).
 - Classification uses `aero-link`'s typed fields — the UAT address qualifier

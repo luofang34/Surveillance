@@ -1,10 +1,10 @@
 # Surveillance
 
 `Surveillance` is a platform-independent Rust library that converts structured
-aviation traffic observations into coherent aircraft tracks. It consumes the
-traffic subset of `aero_link::ReceptionEvent` and emits runtime-neutral
-`TrackDelta` and `TrackSnapshot` values through a versioned, serializable
-schema.
+aviation traffic observations into coherent aircraft tracks. It accepts
+canonical observations from local radios, installed panels, network providers,
+replay, and simulation alike, and emits runtime-neutral `TrackDelta` and
+`TrackSnapshot` values through a versioned, serializable schema.
 
 The library owns state that spans traffic receptions: track identity across
 address namespaces, global CPR position reconstruction, per-field freshness
@@ -34,9 +34,12 @@ binding rules for anyone implementing against that design.
 
 ## Workspace
 
-- `surveillance` — umbrella crate re-exporting the portable core.
-- `crates/surveillance-core` — observation normalization, track engine,
-  identity, CPR, fusion, freshness, and the exported schema.
+- `surveillance` — umbrella crate re-exporting the portable core. Radio input
+  is behind the opt-in `aero-link` feature.
+- `crates/surveillance-core` — canonical observations, track engine, identity,
+  CPR, fusion, freshness, and the exported schema. Depends on no link decoder.
+- `crates/surveillance-aero-link` — normalizes `aero-link` radio receptions
+  into canonical observations.
 
 Planned crates for output adapters and host testing tools are tracked in the
 repository issues.
@@ -44,6 +47,7 @@ repository issues.
 ## Checks
 
 ```sh
-scripts/ci.sh          # fmt, clippy, tests, rustdoc, release build
-scripts/check-no-std.sh  # embedded and wasm target matrix
+scripts/ci.sh              # boundaries, fmt, clippy, tests, rustdoc, release build
+scripts/check-no-std.sh    # embedded and wasm target matrix
+scripts/check-boundaries.sh  # the engine links no radio decoder
 ```

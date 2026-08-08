@@ -1,6 +1,7 @@
 #!/bin/sh
 set -eu
 
+./scripts/check-boundaries.sh
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --all-targets
