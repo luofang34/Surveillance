@@ -1,0 +1,94 @@
+name: CI
+
+# Surveillance depends on the private aero-link repository through a path
+# dependency, so every job checks it out as a sibling directory before any
+# cargo command runs. The gate commands themselves live in scripts/, which
+# local development and this workflow both invoke, so the two cannot drift.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  gates:
+    name: fmt, clippy, test, doc, release, portable targets
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out Surveillance
+        uses: actions/checkout@v4
+        with:
+          path: Surveillance
+
+      - name: Require the aero-link deploy key
+        env:
+          DEPLOY_KEY: ${{ secrets.AERO_LINK_DEPLOY_KEY }}
+        run: |
+          if [ -z "$DEPLOY_KEY" ]; then
+            echo "::error::AERO_LINK_DEPLOY_KEY is not set. CI cannot read the private aero-link dependency. See docs/ci.md." >&2
+            exit 1
+          fi
+
+      - name: Resolve the aero-link revision
+        id: dependency
+        working-directory: Surveillance
+        run: |
+          if [ ! -s ci/aero-link.ref ]; then
+            echo "::error::ci/aero-link.ref is missing or empty; it must name the aero-link revision to build against." >&2
+            exit 1
+          fi
+          ref="$(tr -d '[:space:]' < ci/aero-link.ref)"
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+
+      - name: Check out aero-link
+        uses: actions/checkout@v4
+        with:
+          repository: luofang34/aero-link
+          ref: ${{ steps.dependency.outputs.ref }}
+          ssh-key: ${{ secrets.AERO_LINK_DEPLOY_KEY }}
+          path: aero-link
+
+      - name: Record the resolved dependency
+        working-directory: aero-link
+        run: |
+          {
+            echo "### Dependency"
+            echo ""
+            echo "aero-link \`${{ steps.dependency.outputs.ref }}\` at \`$(git rev-parse HEAD)\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Install the toolchain and portable targets
+        run: |
+          rustup show active-toolchain || rustup toolchain install stable --profile minimal
+          rustup component add clippy rustfmt
+          rustup target add \
+            thumbv6m-none-eabi \
+            thumbv8m.main-none-eabihf \
+            riscv32imac-unknown-none-elf \
+            wasm32-unknown-unknown
+
+      # Both lockfiles key the cache: an aero-link change must not be served a
+      # stale build of the dependency it feeds.
+      - name: Cache cargo artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            Surveillance/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Surveillance/Cargo.lock', 'aero-link/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Run the gate script
+        working-directory: Surveillance
+        run: ./scripts/ci.sh
+
+      - name: Run the portable target matrix
+        working-directory: Surveillance
+        run: ./scripts/check-no-std.sh
