@@ -75,7 +75,7 @@ fn decode_airborne(
     frame: CprFrame,
     context: PositionContext<'_>,
 ) -> Result<Wgs84Position, CprDecodeError> {
-    state.cpr.record(frame, observation.received_at_micros);
+    state.cpr.record(frame, observation.time.received_at_micros);
     match state.cpr.decode_global(context.cpr) {
         Err(CprDecodeError::PairIncomplete) => {
             let reference = established_position(state, observation, context)
@@ -109,7 +109,7 @@ fn established_position(
         .as_ref()
         .filter(|position| {
             position.is_fresh(
-                observation.received_at_micros,
+                observation.time.received_at_micros,
                 context.freshness.position_fresh_micros,
             )
         })
@@ -126,7 +126,7 @@ fn validate_against_previous(
     let Some(previous) = state.snapshot.position.as_ref() else {
         return Ok(());
     };
-    let elapsed_micros = elapsed_since(previous, observation.received_at_micros);
+    let elapsed_micros = elapsed_since(previous, observation.time.received_at_micros);
     validate_range(candidate, previous.value, elapsed_micros, context.cpr)
 }
 

@@ -8,9 +8,9 @@
 #![allow(clippy::expect_used, clippy::panic)]
 
 use surveillance::{
-    AddressNamespace, CURRENT_TRACK_SCHEMA_VERSION, EngineConfig, PositionObservation, SourceRef,
-    SourceTransport, SurveillanceEngine, TrackDelta, TrackId, TrackKey, TrackRecord, TrackSnapshot,
-    TrafficLink, TrafficObservation, Wgs84Position,
+    AddressNamespace, Band, CURRENT_TRACK_SCHEMA_VERSION, DeliveryPath, EngineConfig,
+    ObservationOrigin, ObservationTime, PositionObservation, SourceRef, SurveillanceEngine,
+    TrackDelta, TrackId, TrackKey, TrackRecord, TrackSnapshot, TrafficObservation, Wgs84Position,
 };
 
 #[test]
@@ -39,12 +39,19 @@ fn the_module_style_path_stays_available() {
 #[test]
 fn a_non_radio_source_can_drive_the_engine() {
     let mut engine = SurveillanceEngine::new(EngineConfig::default());
-    let provider = SourceRef::new(9, SourceTransport::Network);
+    let provider = SourceRef::new(9, 0, DeliveryPath::NetworkProvider);
     let key = TrackKey::new(AddressNamespace::Icao, 0x00AC_82EC);
     let mut deltas = Vec::new();
 
     for (at, latitude_deg) in [(1_000_u64, 40.0), (2_000, 40.001), (3_000, 40.002)] {
-        let mut observation = TrafficObservation::new(at, provider, TrafficLink::Adsb1090, key);
+        let mut observation = TrafficObservation::new(
+            ObservationTime::local(at),
+            provider,
+            ObservationOrigin::AdsbDirect {
+                band: Band::Adsb1090,
+            },
+            key,
+        );
         observation.position = Some(PositionObservation::Decoded(Wgs84Position {
             latitude_deg,
             longitude_deg: -74.0,
@@ -82,9 +89,11 @@ fn a_non_radio_track_coasts_and_expires_on_the_callers_clock() {
     engine
         .ingest(
             TrafficObservation::new(
-                0,
-                SourceRef::new(4, SourceTransport::Replay),
-                TrafficLink::Adsb1090,
+                ObservationTime::local(0),
+                SourceRef::new(4, 0, DeliveryPath::Replay),
+                ObservationOrigin::AdsbDirect {
+                    band: Band::Adsb1090,
+                },
                 key,
             ),
             |_| {},

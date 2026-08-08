@@ -12,8 +12,8 @@ use aero_link::{
     UatMessage, UatReception,
 };
 use surveillance_core::{
-    AddressNamespace, Band, Callsign, PositionObservation, Squawk, TrackKey, TrafficLink,
-    TrafficObservation, VelocityObservation, Wgs84Position,
+    AddressNamespace, Band, Callsign, ObservationOrigin, ObservationTime, PositionObservation,
+    Squawk, TrackKey, TrafficObservation, VelocityObservation, Wgs84Position,
 };
 
 use crate::NormalizeError;
@@ -31,7 +31,7 @@ pub(crate) fn normalize(
 
     let (namespace, link) = classify(downlink.address_qualifier)?;
     let mut observation = TrafficObservation::new(
-        projection.received_at_micros,
+        ObservationTime::local(projection.received_at_micros),
         source_ref(projection.source),
         link,
         TrackKey::new(namespace, downlink.address),
@@ -50,15 +50,27 @@ pub(crate) fn normalize(
 /// Map a UAT address qualifier onto a namespace and a link class.
 fn classify(
     qualifier: AddressQualifier,
-) -> Result<(AddressNamespace, TrafficLink), NormalizeError> {
-    let ground = TrafficLink::Tisb { band: Band::Uat978 };
+) -> Result<(AddressNamespace, ObservationOrigin), NormalizeError> {
+    let ground = ObservationOrigin::Tisb { band: Band::Uat978 };
     Ok(match qualifier {
-        AddressQualifier::AdsbIcao => (AddressNamespace::Icao, TrafficLink::Uat978),
-        AddressQualifier::National => (AddressNamespace::AdsbNonIcao, TrafficLink::Uat978),
+        AddressQualifier::AdsbIcao => (
+            AddressNamespace::Icao,
+            ObservationOrigin::AdsbDirect { band: Band::Uat978 },
+        ),
+        AddressQualifier::National => (
+            AddressNamespace::AdsbNonIcao,
+            ObservationOrigin::AdsbDirect { band: Band::Uat978 },
+        ),
         AddressQualifier::TisbIcao => (AddressNamespace::Icao, ground),
         AddressQualifier::TisbTrackFile => (AddressNamespace::TisbTrackFile, ground),
-        AddressQualifier::Vehicle => (AddressNamespace::SurfaceVehicle, TrafficLink::Uat978),
-        AddressQualifier::FixedBeacon => (AddressNamespace::FixedBeacon, TrafficLink::Uat978),
+        AddressQualifier::Vehicle => (
+            AddressNamespace::SurfaceVehicle,
+            ObservationOrigin::AdsbDirect { band: Band::Uat978 },
+        ),
+        AddressQualifier::FixedBeacon => (
+            AddressNamespace::FixedBeacon,
+            ObservationOrigin::AdsbDirect { band: Band::Uat978 },
+        ),
         AddressQualifier::Reserved6 => {
             return Err(NormalizeError::ReservedAddressQualifier { qualifier: 6 });
         }

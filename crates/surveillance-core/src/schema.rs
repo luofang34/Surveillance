@@ -19,7 +19,7 @@ use crate::track::TrackDelta;
 mod tests;
 
 /// Schema version written by this library.
-pub const CURRENT_TRACK_SCHEMA_VERSION: u16 = 1;
+pub const CURRENT_TRACK_SCHEMA_VERSION: u16 = 2;
 
 /// One versioned exported track delta.
 ///

@@ -5,8 +5,8 @@ use aero_link::{
     ExtendedSquitterMessage, IcaoAddressStatus, ModeSMessage, TrafficProjection,
 };
 use surveillance_core::{
-    AddressNamespace, Band, Callsign, CprFormat, CprFrame, PositionObservation, Squawk, TrackKey,
-    TrafficLink, TrafficObservation, VelocityObservation,
+    AddressNamespace, Band, Callsign, CprFormat, CprFrame, ObservationOrigin, ObservationTime,
+    PositionObservation, Squawk, TrackKey, TrafficObservation, VelocityObservation,
 };
 
 use crate::NormalizeError;
@@ -23,7 +23,7 @@ pub(crate) fn normalize(
         ModeSMessage::ExtendedSquitter(squitter) => {
             let (key, link) = classify_squitter(squitter)?;
             let mut observation = TrafficObservation::new(
-                projection.received_at_micros,
+                ObservationTime::local(projection.received_at_micros),
                 source_ref(projection.source),
                 link,
                 key,
@@ -38,9 +38,9 @@ pub(crate) fn normalize(
                 frame.downlink_format,
             )?;
             let mut observation = TrafficObservation::new(
-                projection.received_at_micros,
+                ObservationTime::local(projection.received_at_micros),
                 source_ref(projection.source),
-                TrafficLink::ModeS,
+                ObservationOrigin::ModeSReply,
                 key,
             );
             apply_surveillance(&mut observation, other)?;
@@ -56,22 +56,28 @@ pub(crate) fn normalize(
 /// than re-deriving it from the control field.
 fn classify_squitter(
     squitter: &ExtendedSquitter,
-) -> Result<(TrackKey, TrafficLink), NormalizeError> {
-    let tisb = TrafficLink::Tisb {
+) -> Result<(TrackKey, ObservationOrigin), NormalizeError> {
+    let tisb = ObservationOrigin::Tisb {
         band: Band::Adsb1090,
     };
-    let adsr = TrafficLink::AdsR {
+    let adsr = ObservationOrigin::AdsR {
         band: Band::Adsb1090,
     };
 
     let (namespace, address, link) = match squitter.address {
-        ExtendedSquitterAddress::AdsbIcao { address } => {
-            (AddressNamespace::Icao, address, TrafficLink::Adsb1090)
-        }
+        ExtendedSquitterAddress::AdsbIcao { address } => (
+            AddressNamespace::Icao,
+            address,
+            ObservationOrigin::AdsbDirect {
+                band: Band::Adsb1090,
+            },
+        ),
         ExtendedSquitterAddress::AdsbNonIcao { address } => (
             AddressNamespace::AdsbNonIcao,
             address,
-            TrafficLink::Adsb1090,
+            ObservationOrigin::AdsbDirect {
+                band: Band::Adsb1090,
+            },
         ),
         ExtendedSquitterAddress::TisbIcao { address } => (AddressNamespace::Icao, address, tisb),
         ExtendedSquitterAddress::TisbTrackFile { address } => {

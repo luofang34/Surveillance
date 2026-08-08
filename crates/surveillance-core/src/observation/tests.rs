@@ -2,7 +2,9 @@
 
 use crate::source::{Band, SourceRef};
 
-use crate::observation::{Callsign, InvalidSquawk, Squawk, TrafficLink, TrafficObservation};
+use crate::observation::{
+    Callsign, InvalidSquawk, ObservationOrigin, ObservationTime, Squawk, TrafficObservation,
+};
 use crate::track::{AddressNamespace, TrackKey};
 
 #[test]
@@ -22,38 +24,79 @@ fn squawk_rejects_non_octal_digits_and_overflow() {
 }
 
 #[test]
-fn traffic_link_reports_band_and_rebroadcast() {
-    assert_eq!(TrafficLink::Adsb1090.band(), Band::Adsb1090);
-    assert_eq!(TrafficLink::ModeS.band(), Band::Adsb1090);
-    assert_eq!(TrafficLink::Uat978.band(), Band::Uat978);
+fn an_origin_reports_its_band_only_when_a_radio_received_it() {
     assert_eq!(
-        TrafficLink::AdsR { band: Band::Uat978 }.band(),
-        Band::Uat978
-    );
-    assert_eq!(
-        TrafficLink::Tisb {
+        ObservationOrigin::AdsbDirect {
             band: Band::Adsb1090
         }
         .band(),
-        Band::Adsb1090
+        Some(Band::Adsb1090)
+    );
+    assert_eq!(ObservationOrigin::ModeSReply.band(), Some(Band::Adsb1090));
+    assert_eq!(
+        ObservationOrigin::Tisb { band: Band::Uat978 }.band(),
+        Some(Band::Uat978)
     );
 
-    assert!(!TrafficLink::Adsb1090.is_rebroadcast());
-    assert!(!TrafficLink::Uat978.is_rebroadcast());
+    for originless in [
+        ObservationOrigin::Radar,
+        ObservationOrigin::Mlat,
+        ObservationOrigin::ProviderFused,
+        ObservationOrigin::PanelFused,
+        ObservationOrigin::Replay,
+        ObservationOrigin::Unknown,
+    ] {
+        assert_eq!(
+            originless.band(),
+            None,
+            "{originless:?} never touched a radio in this runtime"
+        );
+    }
+}
+
+#[test]
+fn an_origin_distinguishes_the_target_from_what_ground_derived() {
     assert!(
-        TrafficLink::AdsR {
+        ObservationOrigin::AdsbDirect {
             band: Band::Adsb1090
         }
-        .is_rebroadcast()
+        .is_from_the_target()
     );
-    assert!(TrafficLink::Tisb { band: Band::Uat978 }.is_rebroadcast());
+    assert!(ObservationOrigin::ModeSReply.is_from_the_target());
+    assert!(
+        ObservationOrigin::AdsR {
+            band: Band::Adsb1090
+        }
+        .is_from_the_target(),
+        "a rebroadcast still carries the target's own transmission"
+    );
+
+    assert!(!ObservationOrigin::Radar.is_from_the_target());
+    assert!(!ObservationOrigin::Tisb { band: Band::Uat978 }.is_from_the_target());
+    assert!(!ObservationOrigin::ProviderFused.is_from_the_target());
+
+    assert!(ObservationOrigin::Tisb { band: Band::Uat978 }.is_ground_derived());
+    assert!(ObservationOrigin::Radar.is_ground_derived());
+    assert!(ObservationOrigin::Mlat.is_ground_derived());
+    assert!(
+        !ObservationOrigin::AdsbDirect {
+            band: Band::Adsb1090
+        }
+        .is_ground_derived()
+    );
 }
 
 #[test]
 fn new_observation_reports_no_measured_fields() {
     let key = TrackKey::new(AddressNamespace::Icao, 0x00AC_82EC);
-    let observation =
-        TrafficObservation::new(5_000, SourceRef::default(), TrafficLink::Adsb1090, key);
+    let observation = TrafficObservation::new(
+        ObservationTime::local(5_000),
+        SourceRef::default(),
+        ObservationOrigin::AdsbDirect {
+            band: Band::Adsb1090,
+        },
+        key,
+    );
 
     assert_eq!(observation.key, key);
     assert_eq!(observation.position, None);

@@ -18,13 +18,17 @@ use thiserror::Error;
 
 use crate::cpr::CprFrame;
 use crate::freshness::FieldQuality;
-use crate::source::{Band, SourceRef};
+use crate::source::SourceRef;
 use crate::track::TrackKey;
 
+pub use origin::ObservationOrigin;
 pub use status::{AirGroundState, CallsignKind, EmergencyState};
+pub use time::{ObservationTime, TimeBasis};
 pub use velocity::{AirspeedKind, HeadingReference, VelocityObservation, VerticalRateSource};
 
+mod origin;
 mod status;
+mod time;
 mod velocity;
 
 #[cfg(test)]
@@ -34,13 +38,12 @@ mod tests;
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub struct TrafficObservation {
-    /// Monotonic reception time in microseconds; orders, ages, and expires
-    /// fields. Never UTC.
-    pub received_at_micros: u64,
+    /// When the observation was made and how that was established.
+    pub time: ObservationTime,
     /// Runtime-local input that delivered the observation.
     pub source: SourceRef,
-    /// Originating link class; the fusion-precedence axis.
-    pub link: TrafficLink,
+    /// What produced the observation; the fusion-precedence axis.
+    pub origin: ObservationOrigin,
     /// Over-the-air identity this measurement reports.
     pub key: TrackKey,
     /// Decoded position or undecoded CPR frame.
@@ -72,15 +75,15 @@ impl TrafficObservation {
     /// fields start absent and are set directly on the returned value.
     #[must_use]
     pub fn new(
-        received_at_micros: u64,
+        time: ObservationTime,
         source: SourceRef,
-        link: TrafficLink,
+        origin: ObservationOrigin,
         key: TrackKey,
     ) -> Self {
         Self {
-            received_at_micros,
+            time,
             source,
-            link,
+            origin,
             key,
             position: None,
             pressure_altitude_ft: None,
@@ -93,51 +96,6 @@ impl TrafficObservation {
             emitter_category: None,
             quality: FieldQuality::default(),
         }
-    }
-}
-
-/// Link class that carried an observation.
-///
-/// Fusion precedence between links and freshness windows both key off this
-/// classification, and it survives into every exported field's provenance.
-#[non_exhaustive]
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(tag = "link", rename_all = "snake_case")]
-pub enum TrafficLink {
-    /// Direct 1090 ES ADS-B transmission from the target.
-    Adsb1090,
-    /// Mode S surveillance reply (altitude, identity) from the target.
-    ModeS,
-    /// Direct UAT ADS-B downlink from the target.
-    Uat978,
-    /// Ground rebroadcast (ADS-R) of a target transmitting on the other band.
-    AdsR {
-        /// Band the rebroadcast was received on.
-        band: Band,
-    },
-    /// Ground-derived TIS-B report for the target.
-    Tisb {
-        /// Band the TIS-B uplink was received on.
-        band: Band,
-    },
-}
-
-impl TrafficLink {
-    /// Radio band the observation arrived on.
-    #[must_use]
-    pub fn band(&self) -> Band {
-        match self {
-            Self::Adsb1090 | Self::ModeS => Band::Adsb1090,
-            Self::Uat978 => Band::Uat978,
-            Self::AdsR { band } | Self::Tisb { band } => *band,
-        }
-    }
-
-    /// Whether the value was relayed by ground infrastructure rather than
-    /// received directly from the target.
-    #[must_use]
-    pub fn is_rebroadcast(&self) -> bool {
-        matches!(self, Self::AdsR { .. } | Self::Tisb { .. })
     }
 }
 

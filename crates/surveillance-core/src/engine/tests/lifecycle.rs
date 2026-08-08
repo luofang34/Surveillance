@@ -5,7 +5,8 @@ use alloc::vec::Vec;
 use crate::engine::tests::{ICAO, OTHER_ICAO, advance, engine, ingest, observation};
 use crate::engine::{EngineConfig, SurveillanceEngine};
 use crate::freshness::FreshnessPolicy;
-use crate::observation::TrafficLink;
+use crate::observation::ObservationOrigin;
+use crate::source::Band;
 use crate::track::{AddressNamespace, RemovalReason, TrackDelta, TrackKey, TrackPhase};
 
 /// Windows of the default policy these tests drive time against.
@@ -20,7 +21,16 @@ fn remove_at() -> u64 {
 #[test]
 fn a_track_coasts_once_and_then_stays_quiet() {
     let mut engine = engine();
-    ingest(&mut engine, observation(0, ICAO, TrafficLink::Adsb1090));
+    ingest(
+        &mut engine,
+        observation(
+            0,
+            ICAO,
+            ObservationOrigin::AdsbDirect {
+                band: Band::Adsb1090,
+            },
+        ),
+    );
 
     assert!(
         advance(&mut engine, coast_at()).is_empty(),
@@ -43,13 +53,28 @@ fn a_track_coasts_once_and_then_stays_quiet() {
 #[test]
 fn a_fresh_observation_returns_a_coasting_track_to_active() {
     let mut engine = engine();
-    ingest(&mut engine, observation(0, ICAO, TrafficLink::Adsb1090));
+    ingest(
+        &mut engine,
+        observation(
+            0,
+            ICAO,
+            ObservationOrigin::AdsbDirect {
+                band: Band::Adsb1090,
+            },
+        ),
+    );
     advance(&mut engine, coast_at() + 1);
 
     let reacquired = coast_at() + 2;
     let deltas = ingest(
         &mut engine,
-        observation(reacquired, ICAO, TrafficLink::Adsb1090),
+        observation(
+            reacquired,
+            ICAO,
+            ObservationOrigin::AdsbDirect {
+                band: Band::Adsb1090,
+            },
+        ),
     );
 
     assert_eq!(deltas.len(), 1);
@@ -62,7 +87,16 @@ fn a_fresh_observation_returns_a_coasting_track_to_active() {
 #[test]
 fn a_track_is_removed_after_its_retention_window() {
     let mut engine = engine();
-    ingest(&mut engine, observation(0, ICAO, TrafficLink::Adsb1090));
+    ingest(
+        &mut engine,
+        observation(
+            0,
+            ICAO,
+            ObservationOrigin::AdsbDirect {
+                band: Band::Adsb1090,
+            },
+        ),
+    );
     advance(&mut engine, coast_at() + 1);
 
     let deltas = advance(&mut engine, remove_at() + 1);
@@ -79,13 +113,28 @@ fn a_track_is_removed_after_its_retention_window() {
 #[test]
 fn removal_releases_the_key_for_a_new_track() {
     let mut engine = engine();
-    let created = ingest(&mut engine, observation(0, ICAO, TrafficLink::Adsb1090));
+    let created = ingest(
+        &mut engine,
+        observation(
+            0,
+            ICAO,
+            ObservationOrigin::AdsbDirect {
+                band: Band::Adsb1090,
+            },
+        ),
+    );
     let first_id = created[0].id();
     advance(&mut engine, remove_at() + 1);
 
     let recreated = ingest(
         &mut engine,
-        observation(remove_at() + 2, ICAO, TrafficLink::Adsb1090),
+        observation(
+            remove_at() + 2,
+            ICAO,
+            ObservationOrigin::AdsbDirect {
+                band: Band::Adsb1090,
+            },
+        ),
     );
     assert!(matches!(recreated[0], TrackDelta::Created(_)));
     assert_ne!(
@@ -99,7 +148,7 @@ fn removal_releases_the_key_for_a_new_track() {
 #[test]
 fn a_position_absent_track_coasts_and_expires_like_any_other() {
     let mut engine = engine();
-    let mut observed = observation(0, ICAO, TrafficLink::ModeS);
+    let mut observed = observation(0, ICAO, ObservationOrigin::ModeSReply);
     observed.pressure_altitude_ft = Some(7_500);
     ingest(&mut engine, observed);
 
@@ -118,7 +167,13 @@ fn time_running_backwards_transitions_nothing() {
     let mut engine = engine();
     ingest(
         &mut engine,
-        observation(1_000_000, ICAO, TrafficLink::Adsb1090),
+        observation(
+            1_000_000,
+            ICAO,
+            ObservationOrigin::AdsbDirect {
+                band: Band::Adsb1090,
+            },
+        ),
     );
 
     assert!(advance(&mut engine, 0).is_empty());
@@ -141,11 +196,23 @@ fn each_field_ages_on_its_own_window() {
         ..EngineConfig::default()
     });
 
-    let mut positioned = observation(0, ICAO, TrafficLink::Adsb1090);
+    let mut positioned = observation(
+        0,
+        ICAO,
+        ObservationOrigin::AdsbDirect {
+            band: Band::Adsb1090,
+        },
+    );
     positioned.pressure_altitude_ft = Some(10_000);
     ingest(&mut engine, positioned);
 
-    let mut identified = observation(50_000, ICAO, TrafficLink::Adsb1090);
+    let mut identified = observation(
+        50_000,
+        ICAO,
+        ObservationOrigin::AdsbDirect {
+            band: Band::Adsb1090,
+        },
+    );
     identified.callsign = Some(crate::observation::Callsign::new("DAL9"));
     ingest(&mut engine, identified);
 
@@ -155,7 +222,7 @@ fn each_field_ages_on_its_own_window() {
             .pressure_altitude_ft
             .as_ref()
             .expect("altitude applied")
-            .observed_at_micros,
+            .observed_at_micros(),
         0,
         "a callsign update must not refresh an older altitude"
     );
@@ -178,10 +245,25 @@ fn each_field_ages_on_its_own_window() {
 #[test]
 fn tracks_expire_in_track_identity_order() {
     let mut engine = engine();
-    ingest(&mut engine, observation(0, ICAO, TrafficLink::Adsb1090));
     ingest(
         &mut engine,
-        observation(0, OTHER_ICAO, TrafficLink::Adsb1090),
+        observation(
+            0,
+            ICAO,
+            ObservationOrigin::AdsbDirect {
+                band: Band::Adsb1090,
+            },
+        ),
+    );
+    ingest(
+        &mut engine,
+        observation(
+            0,
+            OTHER_ICAO,
+            ObservationOrigin::AdsbDirect {
+                band: Band::Adsb1090,
+            },
+        ),
     );
 
     let removed: Vec<u64> = advance(&mut engine, remove_at() + 1)
@@ -198,7 +280,13 @@ fn an_identical_replay_produces_an_identical_delta_stream() {
         let mut engine = engine();
         let mut deltas = Vec::new();
         for (at, key) in [(0, ICAO), (1_000, OTHER_ICAO), (2_000, ICAO)] {
-            let mut observed = observation(at, key, TrafficLink::Adsb1090);
+            let mut observed = observation(
+                at,
+                key,
+                ObservationOrigin::AdsbDirect {
+                    band: Band::Adsb1090,
+                },
+            );
             observed.pressure_altitude_ft = Some(10_000 + at as i32);
             engine
                 .ingest(observed, |delta| deltas.push(delta.clone()))
@@ -216,10 +304,25 @@ fn an_identical_replay_produces_an_identical_delta_stream() {
 #[test]
 fn ownship_identities_label_without_suppressing() {
     let mut engine = engine();
-    ingest(&mut engine, observation(0, ICAO, TrafficLink::Adsb1090));
     ingest(
         &mut engine,
-        observation(0, OTHER_ICAO, TrafficLink::Adsb1090),
+        observation(
+            0,
+            ICAO,
+            ObservationOrigin::AdsbDirect {
+                band: Band::Adsb1090,
+            },
+        ),
+    );
+    ingest(
+        &mut engine,
+        observation(
+            0,
+            OTHER_ICAO,
+            ObservationOrigin::AdsbDirect {
+                band: Band::Adsb1090,
+            },
+        ),
     );
 
     let mut deltas = Vec::new();
@@ -248,10 +351,25 @@ fn ownship_identities_label_without_suppressing() {
 #[test]
 fn replacing_the_ownship_set_relabels_in_both_directions() {
     let mut engine = engine();
-    ingest(&mut engine, observation(0, ICAO, TrafficLink::Adsb1090));
     ingest(
         &mut engine,
-        observation(0, OTHER_ICAO, TrafficLink::Adsb1090),
+        observation(
+            0,
+            ICAO,
+            ObservationOrigin::AdsbDirect {
+                band: Band::Adsb1090,
+            },
+        ),
+    );
+    ingest(
+        &mut engine,
+        observation(
+            0,
+            OTHER_ICAO,
+            ObservationOrigin::AdsbDirect {
+                band: Band::Adsb1090,
+            },
+        ),
     );
     engine.set_ownship_identities(&[ICAO], |_| {});
 
@@ -284,7 +402,16 @@ fn a_track_acquired_after_the_ownship_set_is_labeled_on_creation() {
     let mut engine = engine();
     engine.set_ownship_identities(&[ICAO], |_| {});
 
-    let deltas = ingest(&mut engine, observation(0, ICAO, TrafficLink::Adsb1090));
+    let deltas = ingest(
+        &mut engine,
+        observation(
+            0,
+            ICAO,
+            ObservationOrigin::AdsbDirect {
+                band: Band::Adsb1090,
+            },
+        ),
+    );
     let TrackDelta::Created(snapshot) = &deltas[0] else {
         panic!("expected a creation, got {:?}", deltas[0]);
     };
@@ -294,7 +421,16 @@ fn a_track_acquired_after_the_ownship_set_is_labeled_on_creation() {
 #[test]
 fn an_unrelated_ownship_set_leaves_every_track_unlabeled() {
     let mut engine = engine();
-    ingest(&mut engine, observation(0, ICAO, TrafficLink::Adsb1090));
+    ingest(
+        &mut engine,
+        observation(
+            0,
+            ICAO,
+            ObservationOrigin::AdsbDirect {
+                band: Band::Adsb1090,
+            },
+        ),
+    );
 
     let stranger = TrackKey::new(AddressNamespace::SelfAssigned, 0x0000_0001);
     let mut deltas = Vec::new();

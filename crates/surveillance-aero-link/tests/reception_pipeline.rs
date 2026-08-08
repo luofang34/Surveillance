@@ -8,7 +8,8 @@ use aero_link::{
 };
 use surveillance_aero_link::normalize;
 use surveillance_core::{
-    AddressNamespace, EngineConfig, SurveillanceEngine, TrackDelta, TrackKey, TrafficLink,
+    AddressNamespace, Band, EngineConfig, ObservationOrigin, SurveillanceEngine, TrackDelta,
+    TrackKey,
 };
 
 /// Even and odd halves of a published airborne position pair for one target.
@@ -67,7 +68,12 @@ fn receptions_become_tracks_through_the_documented_caller_pattern() {
         "decoded {:?}",
         position.value
     );
-    assert_eq!(position.provenance.link, TrafficLink::Adsb1090);
+    assert_eq!(
+        position.provenance.origin,
+        ObservationOrigin::AdsbDirect {
+            band: Band::Adsb1090
+        }
+    );
     assert_eq!(
         position.provenance.source.id, 1,
         "the runtime-local input identity survives normalization"

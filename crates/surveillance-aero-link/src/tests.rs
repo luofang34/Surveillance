@@ -12,7 +12,7 @@ use aero_link::{
 
 use crate::NormalizeError;
 use surveillance_core::{
-    AddressNamespace, PositionObservation, SourceRef, SourceTransport, TrafficLink,
+    AddressNamespace, Band, DeliveryPath, ObservationOrigin, PositionObservation, SourceRef,
     TrafficObservation,
 };
 
@@ -40,7 +40,7 @@ fn receiver() -> ReceiverSource {
 
 /// The canonical source the adapter must produce from `receiver()`.
 fn expected_source() -> SourceRef {
-    SourceRef::new(3, SourceTransport::Usb)
+    SourceRef::new(3, 0, DeliveryPath::LocalReceiver)
 }
 
 fn normalize_1090(hex: &str, at: u64) -> Result<TrafficObservation, NormalizeError> {
@@ -81,9 +81,14 @@ fn uat_downlink(qualifier: AddressQualifier, address: u32) -> UatDownlink {
 fn a_direct_airborne_position_normalizes_to_an_icao_key_and_a_cpr_frame() {
     let observation = normalize_1090(DF17_AIRBORNE_POSITION, 5_000).expect("frame normalizes");
 
-    assert_eq!(observation.received_at_micros, 5_000);
+    assert_eq!(observation.time.received_at_micros, 5_000);
     assert_eq!(observation.source, expected_source());
-    assert_eq!(observation.link, TrafficLink::Adsb1090);
+    assert_eq!(
+        observation.origin,
+        ObservationOrigin::AdsbDirect {
+            band: Band::Adsb1090
+        }
+    );
     assert_eq!(observation.key.namespace, AddressNamespace::Icao);
     assert_eq!(observation.key.address, 0x0040_621D);
 
@@ -143,36 +148,36 @@ fn each_uat_qualifier_selects_its_namespace_and_link() {
         (
             AddressQualifier::AdsbIcao,
             AddressNamespace::Icao,
-            TrafficLink::Uat978,
+            ObservationOrigin::AdsbDirect { band: Band::Uat978 },
         ),
         (
             AddressQualifier::National,
             AddressNamespace::AdsbNonIcao,
-            TrafficLink::Uat978,
+            ObservationOrigin::AdsbDirect { band: Band::Uat978 },
         ),
         (
             AddressQualifier::TisbIcao,
             AddressNamespace::Icao,
-            TrafficLink::Tisb {
+            ObservationOrigin::Tisb {
                 band: surveillance_core::Band::Uat978,
             },
         ),
         (
             AddressQualifier::TisbTrackFile,
             AddressNamespace::TisbTrackFile,
-            TrafficLink::Tisb {
+            ObservationOrigin::Tisb {
                 band: surveillance_core::Band::Uat978,
             },
         ),
         (
             AddressQualifier::Vehicle,
             AddressNamespace::SurfaceVehicle,
-            TrafficLink::Uat978,
+            ObservationOrigin::AdsbDirect { band: Band::Uat978 },
         ),
         (
             AddressQualifier::FixedBeacon,
             AddressNamespace::FixedBeacon,
-            TrafficLink::Uat978,
+            ObservationOrigin::AdsbDirect { band: Band::Uat978 },
         ),
     ];
 
@@ -182,7 +187,7 @@ fn each_uat_qualifier_selects_its_namespace_and_link() {
         let observation = crate::normalize(&projection).expect("downlink normalizes");
 
         assert_eq!(observation.key.namespace, namespace, "for {qualifier:?}");
-        assert_eq!(observation.link, link, "for {qualifier:?}");
+        assert_eq!(observation.origin, link, "for {qualifier:?}");
         assert_eq!(observation.key.address, 0x00AB_CDEF);
     }
 }

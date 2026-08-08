@@ -35,18 +35,18 @@ pub use association::{CorrelationPolicy, agrees, may_correlate, namespace_rank};
 pub use cpr::{CprDecodeError, CprFormat, CprFrame, CprFrameError, CprPolicy};
 pub use engine::{EngineConfig, IngestError, SurveillanceEngine};
 pub use freshness::{FieldProvenance, FieldQuality, FreshnessPolicy, TimedField};
-pub use fusion::{FieldUpdate, fuse, link_rank};
+pub use fusion::{FieldUpdate, fuse, origin_rank};
 pub use identity::IdentitySet;
 pub use observation::{
     AirGroundState, AirspeedKind, Callsign, CallsignKind, EmergencyState, HeadingReference,
-    InvalidSquawk, PositionObservation, Squawk, TrafficLink, TrafficObservation,
-    VelocityObservation, VerticalRateSource, Wgs84Position,
+    InvalidSquawk, ObservationOrigin, ObservationTime, PositionObservation, Squawk, TimeBasis,
+    TrafficObservation, VelocityObservation, VerticalRateSource, Wgs84Position,
 };
 pub use schema::{
     CURRENT_TRACK_SCHEMA_VERSION, TimeCorrespondence, TrackRecord, TrackRecordHeader,
     TrackSchemaError,
 };
-pub use source::{Band, SourceRef, SourceTransport};
+pub use source::{Band, DeliveryPath, SourceRef};
 pub use track::{
     AddressNamespace, RemovalReason, TrackDelta, TrackId, TrackKey, TrackPhase, TrackSnapshot,
     TrackState,

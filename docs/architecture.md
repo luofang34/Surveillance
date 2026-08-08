@@ -254,6 +254,35 @@ Both directions are evidence-driven and reversible without identity churn.
   position-absent tracks explicitly; position history begins when the first
   valid position arrives.
 
+## Origin, delivery, and time
+
+Three facts about an observation are kept separate, because conflating them
+is how a late network report ends up outranking live local data:
+
+- **Origin** (`ObservationOrigin`) is what produced the surveillance fact:
+  the target's own ADS-B or Mode S reply, a rebroadcast, a ground TIS-B
+  report, radar, multilateration, a provider's or panel's fusion, replay, or
+  an explicitly unknown source. RF origins carry the band they were received
+  on; the others have none, because they never touched a radio here.
+- **Delivery** (`SourceRef`) is how the observation entered this runtime:
+  a local receiver, installed avionics, a network provider, replay, or a
+  simulator, plus a runtime-local identity and an **incarnation**. A source
+  that drops and reconnects returns with the same identity and a higher
+  epoch, so provenance from a dead session can neither be refreshed by nor
+  confused with its successor.
+- **Time** (`ObservationTime`) separates when a report arrived from when the
+  measurement was made. A local reception is measured at ingress. A trusted
+  adapter may map a source's own clock into the local monotonic domain and
+  declare the uncertainty of that mapping. An adapter that cannot establish
+  the measurement time says so, and the value is then explicitly untrustworthy
+  rather than silently treated as current.
+
+Raw UTC and provider clocks are never compared inside the engine. Mapping
+into the local domain is an adapter's responsibility, as is declaring how
+well it did so; a mapping that lands after ingress is clamped, because
+nothing can be measured after it is received and a skewed clock must not be
+able to claim the future.
+
 ## Field fusion and freshness
 
 Every fused field is a `TimedField<T>`: value, observation time, quality,
@@ -264,15 +293,23 @@ and provenance (link, namespace, receiver source). Rules:
 - Conflicts resolve through documented quality-then-age precedence, never
   last-writer-wins. An older observation arriving later cannot overwrite a
   newer applied value.
-- Link precedence prefers direct reception over rebroadcast when both are
-  fresh and of comparable quality (direct ADS-B over Mode S reply over ADS-R
-  over TIS-B), but a fresh rebroadcast beats a stale direct value.
-- The decision procedure evaluates, in order: reject a strictly older
-  observation; accept anything over a value past its freshness window;
-  between fresh values prefer the higher link rank; at equal rank prefer the
-  newer observation; and separate two observations of the same instant by
-  quality, where better means no indicator is worse and at least one is
-  better.
+- Origin precedence prefers the target's own transmissions over anything
+  derived about it (direct ADS-B, then Mode S reply, then ADS-R, then MLAT,
+  radar, and TIS-B, then panel- and provider-fused products, then replay and
+  unknown), but a fresh ground-derived report beats a stale direct value.
+- **Delivery path never grants authority.** A report is neither more nor less
+  trustworthy for having arrived over a socket rather than a radio; only its
+  origin, declared quality, and trustworthy age decide.
+- The decision procedure evaluates, in order: refuse a value whose time was
+  never established when the applied value is established and still fresh;
+  reject a strictly older observation; accept anything over a value past its
+  freshness window; between fresh values prefer the higher origin rank; at
+  equal rank prefer the newer observation; and separate two observations of
+  the same instant by quality, where better means no indicator is worse and
+  at least one is better.
+- Age is always the pessimistic end of any timing uncertainty, so a loosely
+  mapped provider time is treated as older than a tightly mapped one rather
+  than as equally current.
 - Duplicate observations (same content from multiple receivers) update
   provenance and freshness without generating spurious deltas.
 - Units are explicit in field names and newtypes: WGS84 degrees, feet,
