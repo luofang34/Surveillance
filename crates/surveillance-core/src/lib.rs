@@ -23,6 +23,7 @@ pub mod freshness;
 pub mod fusion;
 pub mod geodesy;
 pub mod identity;
+pub mod normalize;
 pub mod observation;
 pub mod schema;
 pub mod track;
@@ -33,6 +34,7 @@ pub use engine::{EngineConfig, IngestError, SurveillanceEngine};
 pub use freshness::{FieldProvenance, FieldQuality, FreshnessPolicy, TimedField};
 pub use fusion::{FieldUpdate, fuse, link_rank};
 pub use identity::IdentitySet;
+pub use normalize::NormalizeError;
 pub use observation::{
     Callsign, InvalidSquawk, PositionObservation, Squawk, TrafficLink, TrafficObservation,
     VelocityObservation, Wgs84Position,

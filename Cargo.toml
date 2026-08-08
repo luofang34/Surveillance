@@ -42,6 +42,7 @@ std = ["surveillance-core/std"]
 surveillance-core = { version = "0.1.0", path = "crates/surveillance-core", default-features = false }
 
 [dev-dependencies]
+aero-link = { workspace = true }
 serde_json = { workspace = true }
 
 [lints]

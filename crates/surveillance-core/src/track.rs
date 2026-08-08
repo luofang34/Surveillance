@@ -49,10 +49,24 @@ impl TrackId {
 pub enum AddressNamespace {
     /// ICAO 24-bit aircraft address.
     Icao,
+    /// Non-ICAO ADS-B address whose kind is not yet known.
+    ///
+    /// One protocol value covers anonymous, self-assigned, surface-vehicle,
+    /// and fixed-obstacle addresses; only an emitter category tells them
+    /// apart. Until one arrives the target is tracked but never correlated,
+    /// so an unclassified vehicle can never be merged with an aircraft.
+    AdsbNonIcao,
     /// Self-assigned or anonymized address.
     SelfAssigned,
     /// Ground-system track-file identifier.
     TisbTrackFile,
+    /// Mode A code and track-file number relayed by TIS-B, packed as
+    /// `mode_a_code << 12 | track_file_number`.
+    ///
+    /// This is a distinct identity space from [`Self::TisbTrackFile`]: a
+    /// packed Mode A key and a service-generated 24-bit address can collide
+    /// numerically while describing unrelated targets.
+    TisbModeATrackFile,
     /// Surface vehicle address.
     SurfaceVehicle,
     /// Fixed ADS-B beacon address.

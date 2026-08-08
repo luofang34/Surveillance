@@ -112,6 +112,7 @@ dependencies = [
 name = "surveillance"
 version = "0.1.0"
 dependencies = [
+ "aero-link",
  "serde_json",
  "surveillance-core",
 ]

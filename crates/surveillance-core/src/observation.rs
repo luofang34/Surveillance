@@ -51,6 +51,10 @@ pub struct TrafficObservation {
     pub air_ground: Option<AirGroundState>,
     /// Emergency or priority status reported by the target.
     pub emergency: Option<EmergencyState>,
+    /// Emitter category reported by an identification or mode-status
+    /// message, which is what resolves a non-ICAO ADS-B address into a
+    /// vehicle, obstacle, or aircraft.
+    pub emitter_category: Option<u8>,
     /// Integrity and accuracy indicators attached to this measurement.
     pub quality: FieldQuality,
 }
@@ -78,6 +82,7 @@ impl TrafficObservation {
             squawk: None,
             air_ground: None,
             emergency: None,
+            emitter_category: None,
             quality: FieldQuality::default(),
         }
     }

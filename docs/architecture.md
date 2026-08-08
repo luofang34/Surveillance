@@ -118,22 +118,33 @@ if let Some(projection) = event.traffic() {
   link classification, monotonic time, receiver source, and the optional
   measured fields (position or undecoded CPR, altitudes, velocity, callsign,
   squawk, quality indicators).
-- Classification uses `aero-link`'s typed fields — UAT `AddressQualifier`,
-  downlink formats, DF 18 control-field semantics — never raw message bytes.
-  Typed DF 18 classification is tracked by aero-link#17; until it lands, the
-  1090 side cannot distinguish direct ADS-B, anonymous, TIS-B, and ADS-R
-  sources, which blocks namespace-correct 1090 normalization.
-- `aero-link`'s borrowed projection type currently shares the
-  `TrafficObservation` name; the projection rename is tracked by
-  aero-link#18. Until then, adapter code imports the projection under an
-  alias. The owned, normalized `TrafficObservation` name belongs to
-  Surveillance.
+- Classification uses `aero-link`'s typed fields — the UAT address qualifier
+  and the classified extended-squitter address, which already encodes both
+  the namespace and the service that produced the frame — never raw message
+  bytes.
 - Non-traffic receptions (FIS-B, ground uplinks) never reach the engine and
   must leave its state untouched — the projection returns `None` and the
   caller skips ingestion.
 - `TrafficLink` records the originating link class (direct 1090 ES, Mode S
   reply, direct UAT, ADS-R, TIS-B) with its band. It is the fusion-precedence
-  axis and part of every field's provenance.
+  axis and part of every field's provenance. On 978 MHz the qualifier does
+  not separate an ADS-R rebroadcast from a TIS-B report, so both normalize to
+  a TIS-B link: that never claims a report came straight from the target when
+  it did not.
+- A reception that names no target, carries service-management data, or uses
+  a reserved qualifier produces a typed error rather than a fabricated
+  identity. A Mode S reply whose address was recovered from parity but never
+  independently confirmed is refused for the same reason: accepting it would
+  create a track for an address no receiver actually saw announced.
+- Two identity spaces need care. A TIS-B Mode A track file carries a Mode A
+  code and a track-file number rather than a 24-bit address; both are twelve
+  bits, so they pack into one key value under their own namespace, kept
+  distinct from service-generated 24-bit track files that could collide with
+  them numerically. And one protocol value covers every non-ICAO ADS-B
+  address — anonymous, self-assigned, vehicle, and fixed obstacle — which
+  only an emitter category separates, so those normalize to an
+  `AdsbNonIcao` namespace that correlation refuses to act on until a category
+  arrives.
 
 ## Track identity model
 

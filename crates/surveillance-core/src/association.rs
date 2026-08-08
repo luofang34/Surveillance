@@ -88,27 +88,46 @@ impl CorrelationEvidence {
 
 /// Whether two namespaces may ever describe one aircraft.
 ///
-/// Surface vehicles never correlate with aircraft. Two identities in the same
-/// namespace are already separated by address, so equality — not correlation
-/// — is what would join them. Everything else is decided kinematically, with
-/// at least one side being an identity that cannot be trusted as globally
-/// unique.
+/// Surface vehicles never correlate with aircraft, and an unclassified
+/// non-ICAO ADS-B address is ineligible for the same reason: it may yet turn
+/// out to be a vehicle, and a merge decided before its emitter category
+/// arrives could not be justified. Two identities in the same namespace are
+/// already separated by address, so equality — not correlation — is what
+/// would join them. Everything else is decided kinematically, with at least
+/// one side being an identity that cannot be trusted as globally unique.
 #[must_use]
 pub fn may_correlate(left: AddressNamespace, right: AddressNamespace) -> bool {
-    use AddressNamespace::{FixedBeacon, Icao, SelfAssigned, SurfaceVehicle, TisbTrackFile};
+    if !is_correlatable(left) || !is_correlatable(right) || left == right {
+        return false;
+    }
+    (is_uncertain(left) && (is_uncertain(right) || is_cooperative(right)))
+        || (is_cooperative(left) && is_uncertain(right))
+}
 
-    if left == SurfaceVehicle || right == SurfaceVehicle {
-        return false;
-    }
-    if left == right {
-        return false;
-    }
+/// Whether a namespace may take part in correlation at all.
+fn is_correlatable(namespace: AddressNamespace) -> bool {
+    !matches!(
+        namespace,
+        AddressNamespace::SurfaceVehicle | AddressNamespace::AdsbNonIcao
+    )
+}
+
+/// Whether a namespace names an identity that cannot be trusted as globally
+/// unique, which is what makes kinematic evidence necessary.
+fn is_uncertain(namespace: AddressNamespace) -> bool {
     matches!(
-        (left, right),
-        (
-            TisbTrackFile | SelfAssigned,
-            Icao | FixedBeacon | TisbTrackFile | SelfAssigned
-        ) | (Icao | FixedBeacon, TisbTrackFile | SelfAssigned)
+        namespace,
+        AddressNamespace::TisbTrackFile
+            | AddressNamespace::TisbModeATrackFile
+            | AddressNamespace::SelfAssigned
+    )
+}
+
+/// Whether a namespace names a globally unique cooperative address.
+fn is_cooperative(namespace: AddressNamespace) -> bool {
+    matches!(
+        namespace,
+        AddressNamespace::Icao | AddressNamespace::FixedBeacon
     )
 }
 
@@ -120,10 +139,12 @@ pub fn may_correlate(left: AddressNamespace, right: AddressNamespace) -> bool {
 #[must_use]
 pub fn namespace_rank(namespace: AddressNamespace) -> u8 {
     match namespace {
-        AddressNamespace::Icao => 4,
-        AddressNamespace::FixedBeacon => 3,
-        AddressNamespace::SelfAssigned => 2,
-        AddressNamespace::TisbTrackFile => 1,
+        AddressNamespace::Icao => 6,
+        AddressNamespace::FixedBeacon => 5,
+        AddressNamespace::SelfAssigned => 4,
+        AddressNamespace::AdsbNonIcao => 3,
+        AddressNamespace::TisbTrackFile => 2,
+        AddressNamespace::TisbModeATrackFile => 1,
         AddressNamespace::SurfaceVehicle => 0,
     }
 }
