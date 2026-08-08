@@ -3,11 +3,11 @@ name = "surveillance"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.88"
-description = "Platform-independent aircraft tracking over aero-link traffic receptions"
+description = "Platform-independent aircraft tracking from radio, panel, network, and replay traffic"
 license = "MIT"
 
 [workspace]
-members = ["crates/surveillance-core"]
+members = ["crates/surveillance-aero-link", "crates/surveillance-core"]
 default-members = ["."]
 resolver = "3"
 
@@ -36,13 +36,15 @@ path = "src/lib.rs"
 
 [features]
 default = []
-std = ["surveillance-core/std"]
+std = ["surveillance-core/std", "surveillance-aero-link?/std"]
+# Radio input is opt-in: the portable default build never links a decoder.
+aero-link = ["dep:surveillance-aero-link"]
 
 [dependencies]
 surveillance-core = { version = "0.1.0", path = "crates/surveillance-core", default-features = false }
+surveillance-aero-link = { version = "0.1.0", path = "crates/surveillance-aero-link", default-features = false, optional = true }
 
 [dev-dependencies]
-aero-link = { workspace = true }
 serde_json = { workspace = true }
 
 [lints]

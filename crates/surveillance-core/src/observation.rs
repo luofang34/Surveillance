@@ -1,23 +1,35 @@
-//! Normalized traffic observations and their provenance.
+//! Canonical traffic observations and their provenance.
 //!
-//! One [`TrafficObservation`] is one normalized traffic measurement produced
-//! from the borrowed `aero_link::ReceptionEvent::traffic()` projection. It
-//! carries the reported over-the-air identity, the originating link class,
-//! monotonic reception time, receiver provenance, and only the measured
-//! fields the reception actually supplied — absence stays explicit.
+//! One [`TrafficObservation`] is one normalized traffic measurement, whatever
+//! produced it: a local radio, an installed panel, a network provider, a
+//! replay, or a simulator. It carries the reported over-the-air identity, the
+//! link class it came through, monotonic ingress time, source provenance, and
+//! only the measured fields the report actually supplied — absence stays
+//! explicit.
+//!
+//! Every type here belongs to Surveillance. Translating one radio reception
+//! into these terms is an adapter's job, so no decoder vocabulary reaches a
+//! consumer of the engine.
 
 use alloc::string::String;
 
-use aero_link::{
-    AirGroundState, AirspeedKind, Band, CallsignKind, EmergencyState, HeadingReference,
-    ReceiverSource, VerticalRateSource,
-};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::cpr::CprFrame;
 use crate::freshness::FieldQuality;
+use crate::source::SourceRef;
 use crate::track::TrackKey;
+
+pub use origin::ObservationOrigin;
+pub use status::{AirGroundState, CallsignKind, EmergencyState};
+pub use time::{ObservationTime, TimeBasis};
+pub use velocity::{AirspeedKind, HeadingReference, VelocityObservation, VerticalRateSource};
+
+mod origin;
+mod status;
+mod time;
+mod velocity;
 
 #[cfg(test)]
 mod tests;
@@ -26,13 +38,12 @@ mod tests;
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub struct TrafficObservation {
-    /// Monotonic reception time in microseconds; orders, ages, and expires
-    /// fields. Never UTC.
-    pub received_at_micros: u64,
-    /// Runtime-local receiver that produced the observation.
-    pub source: ReceiverSource,
-    /// Originating link class; the fusion-precedence axis.
-    pub link: TrafficLink,
+    /// When the observation was made and how that was established.
+    pub time: ObservationTime,
+    /// Runtime-local input that delivered the observation.
+    pub source: SourceRef,
+    /// What produced the observation; the fusion-precedence axis.
+    pub origin: ObservationOrigin,
     /// Over-the-air identity this measurement reports.
     pub key: TrackKey,
     /// Decoded position or undecoded CPR frame.
@@ -64,15 +75,15 @@ impl TrafficObservation {
     /// fields start absent and are set directly on the returned value.
     #[must_use]
     pub fn new(
-        received_at_micros: u64,
-        source: ReceiverSource,
-        link: TrafficLink,
+        time: ObservationTime,
+        source: SourceRef,
+        origin: ObservationOrigin,
         key: TrackKey,
     ) -> Self {
         Self {
-            received_at_micros,
+            time,
             source,
-            link,
+            origin,
             key,
             position: None,
             pressure_altitude_ft: None,
@@ -85,51 +96,6 @@ impl TrafficObservation {
             emitter_category: None,
             quality: FieldQuality::default(),
         }
-    }
-}
-
-/// Link class that carried an observation.
-///
-/// Fusion precedence between links and freshness windows both key off this
-/// classification, and it survives into every exported field's provenance.
-#[non_exhaustive]
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(tag = "link", rename_all = "snake_case")]
-pub enum TrafficLink {
-    /// Direct 1090 ES ADS-B transmission from the target.
-    Adsb1090,
-    /// Mode S surveillance reply (altitude, identity) from the target.
-    ModeS,
-    /// Direct UAT ADS-B downlink from the target.
-    Uat978,
-    /// Ground rebroadcast (ADS-R) of a target transmitting on the other band.
-    AdsR {
-        /// Band the rebroadcast was received on.
-        band: Band,
-    },
-    /// Ground-derived TIS-B report for the target.
-    Tisb {
-        /// Band the TIS-B uplink was received on.
-        band: Band,
-    },
-}
-
-impl TrafficLink {
-    /// Radio band the observation arrived on.
-    #[must_use]
-    pub fn band(&self) -> Band {
-        match self {
-            Self::Adsb1090 | Self::ModeS => Band::Adsb1090,
-            Self::Uat978 => Band::Uat978,
-            Self::AdsR { band } | Self::Tisb { band } => *band,
-        }
-    }
-
-    /// Whether the value was relayed by ground infrastructure rather than
-    /// received directly from the target.
-    #[must_use]
-    pub fn is_rebroadcast(&self) -> bool {
-        matches!(self, Self::AdsR { .. } | Self::Tisb { .. })
     }
 }
 
@@ -156,41 +122,6 @@ pub struct Wgs84Position {
     pub latitude_deg: f64,
     /// Longitude in degrees, positive east.
     pub longitude_deg: f64,
-}
-
-/// Horizontal and vertical movement reported by one observation.
-///
-/// Targets report either a ground-referenced velocity (speed over ground and
-/// true track) or an air-referenced one (airspeed and heading); absent parts
-/// stay absent rather than being derived.
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
-#[non_exhaustive]
-pub struct VelocityObservation {
-    /// Speed over ground in knots.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub ground_speed_kt: Option<f64>,
-    /// True track angle in degrees clockwise from geographic north.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub track_angle_deg_true: Option<f64>,
-    /// Airspeed in knots when the target reports airspeed instead of ground
-    /// velocity.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub airspeed_kt: Option<f64>,
-    /// Whether `airspeed_kt` is true or indicated airspeed.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub airspeed_kind: Option<AirspeedKind>,
-    /// Heading in degrees when the target reports heading instead of track.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub heading_deg: Option<f64>,
-    /// Reference direction (true or magnetic north) for `heading_deg`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub heading_reference: Option<HeadingReference>,
-    /// Vertical rate in feet per minute, positive climbing.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub vertical_rate_fpm: Option<i32>,
-    /// Sensor source (barometric or geometric) for `vertical_rate_fpm`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub vertical_rate_source: Option<VerticalRateSource>,
 }
 
 /// Flight identification reported by the target.

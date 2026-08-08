@@ -7,26 +7,28 @@
     clippy::field_reassign_with_default
 )]
 
-use aero_link::{
-    AirGroundState, CallsignKind, EmergencyState, ReceiverSource, SourceTransport,
-    VerticalRateSource,
-};
 use surveillance_core::{
-    AddressNamespace, CURRENT_TRACK_SCHEMA_VERSION, Callsign, FieldProvenance, FieldQuality,
-    Squawk, TimedField, TrackDelta, TrackId, TrackKey, TrackRecord, TrackRecordHeader,
-    TrackSchemaError, TrackSnapshot, TrafficLink, VelocityObservation, Wgs84Position,
+    AddressNamespace, AirGroundState, Band, CURRENT_TRACK_SCHEMA_VERSION, Callsign, CallsignKind,
+    DeliveryPath, EmergencyState, FieldProvenance, FieldQuality, ObservationOrigin,
+    ObservationTime, SourceRef, Squawk, TimedField, TrackDelta, TrackId, TrackKey, TrackRecord,
+    TrackRecordHeader, TrackSchemaError, TrackSnapshot, VelocityObservation, VerticalRateSource,
+    Wgs84Position,
 };
 
-const CREATED_FIXTURE: &str = include_str!("fixtures/track_v1_created.json");
+const CREATED_FIXTURE: &str = include_str!("fixtures/track_v2_created.json");
+/// A record written before origin, delivery, and time were separated.
+const SUPERSEDED_FIXTURE: &str = include_str!("fixtures/track_v1_created_superseded.json");
 
 const KEY: TrackKey = TrackKey::new(AddressNamespace::Icao, 0x00AC_82EC);
 const TRACK_FILE_KEY: TrackKey = TrackKey::new(AddressNamespace::TisbTrackFile, 66);
 
 fn adsb_provenance() -> FieldProvenance {
     FieldProvenance::new(
-        TrafficLink::Adsb1090,
+        ObservationOrigin::AdsbDirect {
+            band: Band::Adsb1090,
+        },
         AddressNamespace::Icao,
-        ReceiverSource::new(1, SourceTransport::Usb),
+        SourceRef::new(1, 0, DeliveryPath::LocalReceiver),
     )
 }
 
@@ -38,13 +40,13 @@ fn fixture_record() -> TrackRecord {
             latitude_deg: 40.639751,
             longitude_deg: -73.778925,
         },
-        1_500_000,
+        ObservationTime::local(1_500_000),
         FieldQuality::new(Some(8), Some(9), None, Some(2)),
         adsb_provenance(),
     ));
     snapshot.pressure_altitude_ft = Some(TimedField::new(
         12_500,
-        1_500_000,
+        ObservationTime::local(1_500_000),
         FieldQuality::default(),
         adsb_provenance(),
     ));
@@ -55,7 +57,7 @@ fn fixture_record() -> TrackRecord {
     velocity.vertical_rate_source = Some(VerticalRateSource::Barometric);
     snapshot.velocity = Some(TimedField::new(
         velocity,
-        1_500_000,
+        ObservationTime::local(1_500_000),
         FieldQuality::new(None, None, Some(2), None),
         adsb_provenance(),
     ));
@@ -63,25 +65,25 @@ fn fixture_record() -> TrackRecord {
     callsign.kind = Some(CallsignKind::Callsign);
     snapshot.callsign = Some(TimedField::new(
         callsign,
-        1_200_000,
+        ObservationTime::local(1_200_000),
         FieldQuality::default(),
         adsb_provenance(),
     ));
     snapshot.squawk = Some(TimedField::new(
         Squawk::try_from(3471).expect("valid Mode A code"),
-        1_200_000,
+        ObservationTime::local(1_200_000),
         FieldQuality::default(),
         adsb_provenance(),
     ));
     snapshot.air_ground = Some(TimedField::new(
         AirGroundState::Subsonic,
-        1_500_000,
+        ObservationTime::local(1_500_000),
         FieldQuality::default(),
         adsb_provenance(),
     ));
     snapshot.emergency = Some(TimedField::new(
         EmergencyState::None,
-        1_200_000,
+        ObservationTime::local(1_200_000),
         FieldQuality::default(),
         adsb_provenance(),
     ));
@@ -163,7 +165,7 @@ fn absent_fields_stay_absent_on_the_wire() {
 #[test]
 fn unsupported_versions_fail_with_a_typed_error() {
     let unsupported =
-        CREATED_FIXTURE.replacen("\"schema_version\": 1", "\"schema_version\": 99", 1);
+        CREATED_FIXTURE.replacen("\"schema_version\": 2", "\"schema_version\": 99", 1);
     let record: TrackRecord =
         serde_json::from_str(&unsupported).expect("payload shape still decodes");
 
@@ -189,6 +191,25 @@ fn the_header_validates_before_any_payload_interpretation() {
         header.validate().expect_err("must reject"),
         TrackSchemaError::UnsupportedVersion {
             found: 99,
+            supported: CURRENT_TRACK_SCHEMA_VERSION,
+        }
+    );
+}
+
+/// A record written against the schema that predates the origin, delivery,
+/// and time split must be refused by version rather than misread. Its
+/// `link` and bare `observed_at_micros` would otherwise be silently dropped
+/// by field-absent defaulting, leaving a track whose provenance claims less
+/// than the record actually said.
+#[test]
+fn a_superseded_record_is_refused_by_version_not_misparsed() {
+    let header: TrackRecordHeader =
+        serde_json::from_str(SUPERSEDED_FIXTURE).expect("the header decodes from any version");
+    assert_eq!(header.schema_version(), 1);
+    assert_eq!(
+        header.validate().expect_err("version 1 is no longer read"),
+        TrackSchemaError::UnsupportedVersion {
+            found: 1,
             supported: CURRENT_TRACK_SCHEMA_VERSION,
         }
     );

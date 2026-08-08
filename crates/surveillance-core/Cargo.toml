@@ -3,15 +3,14 @@ name = "surveillance-core"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.88"
-description = "Portable aircraft-track engine, identity model, and exported track schema"
+description = "Source-neutral aircraft-track engine, identity model, and exported track schema"
 license = "MIT"
 
 [features]
 default = []
-std = ["aero-link/std", "serde/std", "thiserror/std"]
+std = ["serde/std", "thiserror/std"]
 
 [dependencies]
-aero-link = { workspace = true }
 libm = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }

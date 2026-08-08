@@ -105,9 +105,14 @@ impl SurveillanceEngine {
         let position_update = position::apply(state, &observation, context);
         changed |= position_update.is_meaningful();
 
-        state.mark_identity_seen(observation.key, observation.received_at_micros);
-        if observation.received_at_micros > state.snapshot.last_observed_at_micros {
-            state.snapshot.last_observed_at_micros = observation.received_at_micros;
+        state.mark_identity_seen(observation.key, observation.time.received_at_micros);
+        // Liveness ages from when the target was observed, not from when the
+        // report reached us. A provider with honest latency would otherwise
+        // keep a track Active on a position already older than its coasting
+        // window, which is exactly what the time model exists to prevent.
+        let observed_at = observation.time.observed_at_micros;
+        if observed_at > state.snapshot.last_observed_at_micros {
+            state.snapshot.last_observed_at_micros = observed_at;
         }
         if state.snapshot.phase == TrackPhase::Coasting {
             state.snapshot.phase = TrackPhase::Active;
@@ -121,7 +126,7 @@ impl SurveillanceEngine {
         }
 
         if position_update != FieldUpdate::Rejected {
-            self.correlate(id, observation.received_at_micros, &mut on_delta);
+            self.correlate(id, observation.time.received_at_micros, &mut on_delta);
         }
         Ok(())
     }
@@ -300,7 +305,8 @@ impl SurveillanceEngine {
 
         let id = TrackId::new(self.next_id);
         self.next_id = self.next_id.wrapping_add(1);
-        let mut snapshot = TrackSnapshot::new(id, observation.key, observation.received_at_micros);
+        let mut snapshot =
+            TrackSnapshot::new(id, observation.key, observation.time.received_at_micros);
         snapshot.ownship_shadow = self.ownship.contains(&observation.key);
         self.tracks.insert(id, TrackState::from(snapshot));
         self.keys.insert(observation.key, id);

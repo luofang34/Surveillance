@@ -1,6 +1,6 @@
 //! Track identity, fused state, snapshots, and output deltas.
 
-use aero_link::{AirGroundState, EmergencyState};
+use crate::observation::{AirGroundState, EmergencyState};
 use serde::{Deserialize, Serialize};
 
 use alloc::vec::Vec;

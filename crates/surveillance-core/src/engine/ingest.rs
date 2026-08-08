@@ -29,10 +29,10 @@ pub(crate) fn apply_fields(
 pub(crate) fn timed<T>(observation: &TrafficObservation, value: T) -> TimedField<T> {
     TimedField::new(
         value,
-        observation.received_at_micros,
+        observation.time,
         observation.quality,
         FieldProvenance::new(
-            observation.link,
+            observation.origin,
             observation.key.namespace,
             observation.source,
         ),

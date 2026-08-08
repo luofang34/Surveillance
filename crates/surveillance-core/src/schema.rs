@@ -6,8 +6,9 @@
 //! [`TrackRecord`] whose version is validated before any payload
 //! interpretation; readers decode [`TrackRecordHeader`] first so an
 //! incompatible payload shape fails with a typed version error rather than a
-//! generic deserialization error. Growth rules match `aero-link`: additive
-//! optional fields are compatible, everything else bumps the version.
+//! generic deserialization error. Growth rules are additive: an optional
+//! field with an absent representation is compatible, and everything else
+//! bumps the version.
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -18,7 +19,7 @@ use crate::track::TrackDelta;
 mod tests;
 
 /// Schema version written by this library.
-pub const CURRENT_TRACK_SCHEMA_VERSION: u16 = 1;
+pub const CURRENT_TRACK_SCHEMA_VERSION: u16 = 2;
 
 /// One versioned exported track delta.
 ///

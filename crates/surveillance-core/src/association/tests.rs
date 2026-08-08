@@ -2,13 +2,14 @@
 
 use alloc::vec::Vec;
 
-use aero_link::ReceiverSource;
+use crate::source::Band;
+use crate::source::SourceRef;
 
 use crate::association::{
     CorrelationEvidence, CorrelationPolicy, agrees, may_correlate, namespace_rank, record,
 };
 use crate::freshness::{FieldProvenance, FieldQuality, FreshnessPolicy, TimedField};
-use crate::observation::{TrafficLink, VelocityObservation, Wgs84Position};
+use crate::observation::{ObservationOrigin, ObservationTime, VelocityObservation, Wgs84Position};
 use crate::track::{AddressNamespace, TrackId, TrackKey, TrackSnapshot};
 
 fn snapshot(
@@ -19,14 +20,19 @@ fn snapshot(
 ) -> TrackSnapshot {
     let key = TrackKey::new(namespace, 0x0000_0001);
     let mut snapshot = TrackSnapshot::new(TrackId::new(1), key, at);
-    let provenance =
-        FieldProvenance::new(TrafficLink::Adsb1090, namespace, ReceiverSource::default());
+    let provenance = FieldProvenance::new(
+        ObservationOrigin::AdsbDirect {
+            band: Band::Adsb1090,
+        },
+        namespace,
+        SourceRef::default(),
+    );
     snapshot.position = Some(TimedField::new(
         Wgs84Position {
             latitude_deg,
             longitude_deg,
         },
-        at,
+        ObservationTime::local(at),
         FieldQuality::default(),
         provenance,
     ));
@@ -35,13 +41,15 @@ fn snapshot(
 
 fn with_altitude(mut snapshot: TrackSnapshot, at: u64, feet: i32) -> TrackSnapshot {
     let provenance = FieldProvenance::new(
-        TrafficLink::Adsb1090,
+        ObservationOrigin::AdsbDirect {
+            band: Band::Adsb1090,
+        },
         snapshot.key.namespace,
-        ReceiverSource::default(),
+        SourceRef::default(),
     );
     snapshot.pressure_altitude_ft = Some(TimedField::new(
         feet,
-        at,
+        ObservationTime::local(at),
         FieldQuality::default(),
         provenance,
     ));
@@ -50,16 +58,18 @@ fn with_altitude(mut snapshot: TrackSnapshot, at: u64, feet: i32) -> TrackSnapsh
 
 fn with_speed(mut snapshot: TrackSnapshot, at: u64, knots: f64) -> TrackSnapshot {
     let provenance = FieldProvenance::new(
-        TrafficLink::Adsb1090,
+        ObservationOrigin::AdsbDirect {
+            band: Band::Adsb1090,
+        },
         snapshot.key.namespace,
-        ReceiverSource::default(),
+        SourceRef::default(),
     );
     snapshot.velocity = Some(TimedField::new(
         VelocityObservation {
             ground_speed_kt: Some(knots),
             ..VelocityObservation::default()
         },
-        at,
+        ObservationTime::local(at),
         FieldQuality::default(),
         provenance,
     ));

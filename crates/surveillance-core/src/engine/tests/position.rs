@@ -3,7 +3,8 @@
 use crate::cpr::{CprFormat, CprFrame};
 use crate::engine::tests::{ICAO, advance, engine, ingest, observation};
 use crate::engine::{EngineConfig, SurveillanceEngine};
-use crate::observation::{PositionObservation, TrafficLink, Wgs84Position};
+use crate::observation::{ObservationOrigin, PositionObservation, Wgs84Position};
+use crate::source::Band;
 use crate::track::TrackDelta;
 
 const EVEN: CprFrame = CprFrame {
@@ -23,7 +24,13 @@ const TRUTH: Wgs84Position = Wgs84Position {
 };
 
 fn cpr_observation(at: u64, frame: CprFrame) -> crate::observation::TrafficObservation {
-    let mut observed = observation(at, ICAO, TrafficLink::Adsb1090);
+    let mut observed = observation(
+        at,
+        ICAO,
+        ObservationOrigin::AdsbDirect {
+            band: Band::Adsb1090,
+        },
+    );
     observed.position = Some(PositionObservation::CprAirborne(frame));
     observed
 }
@@ -62,8 +69,13 @@ fn a_complete_pair_gives_the_track_its_first_position() {
     };
     let position = snapshot.position.as_ref().expect("position applied");
     assert_near(position.value, TRUTH);
-    assert_eq!(position.observed_at_micros, 2_000);
-    assert_eq!(position.provenance.link, TrafficLink::Adsb1090);
+    assert_eq!(position.observed_at_micros(), 2_000);
+    assert_eq!(
+        position.provenance.origin,
+        ObservationOrigin::AdsbDirect {
+            band: Band::Adsb1090
+        }
+    );
 }
 
 #[test]
@@ -86,7 +98,11 @@ fn a_stale_pair_does_not_produce_a_position() {
 #[test]
 fn a_decoded_position_applies_without_any_pairing() {
     let mut engine = engine();
-    let mut observed = observation(1_000, ICAO, TrafficLink::Uat978);
+    let mut observed = observation(
+        1_000,
+        ICAO,
+        ObservationOrigin::AdsbDirect { band: Band::Uat978 },
+    );
     observed.position = Some(PositionObservation::Decoded(TRUTH));
     ingest(&mut engine, observed);
 
@@ -97,17 +113,28 @@ fn a_decoded_position_applies_without_any_pairing() {
         .as_ref()
         .expect("position applied");
     assert_near(position.value, TRUTH);
-    assert_eq!(position.provenance.link, TrafficLink::Uat978);
+    assert_eq!(
+        position.provenance.origin,
+        ObservationOrigin::AdsbDirect { band: Band::Uat978 }
+    );
 }
 
 #[test]
 fn an_implausible_decoded_position_is_rejected() {
     let mut engine = engine();
-    let mut first = observation(1_000, ICAO, TrafficLink::Uat978);
+    let mut first = observation(
+        1_000,
+        ICAO,
+        ObservationOrigin::AdsbDirect { band: Band::Uat978 },
+    );
     first.position = Some(PositionObservation::Decoded(TRUTH));
     ingest(&mut engine, first);
 
-    let mut jumped = observation(1_100_000, ICAO, TrafficLink::Uat978);
+    let mut jumped = observation(
+        1_100_000,
+        ICAO,
+        ObservationOrigin::AdsbDirect { band: Band::Uat978 },
+    );
     jumped.position = Some(PositionObservation::Decoded(Wgs84Position {
         latitude_deg: -33.9,
         longitude_deg: 151.2,
@@ -129,7 +156,11 @@ fn an_implausible_decoded_position_is_rejected() {
 #[test]
 fn an_established_track_decodes_a_lone_frame_against_its_own_position() {
     let mut engine = engine();
-    let mut seeded = observation(1_000, ICAO, TrafficLink::Uat978);
+    let mut seeded = observation(
+        1_000,
+        ICAO,
+        ObservationOrigin::AdsbDirect { band: Band::Uat978 },
+    );
     seeded.position = Some(PositionObservation::Decoded(Wgs84Position {
         latitude_deg: 52.2560,
         longitude_deg: 3.9160,
@@ -150,7 +181,11 @@ fn an_established_track_decodes_a_lone_frame_against_its_own_position() {
 #[test]
 fn a_lone_frame_resolved_far_from_its_reference_is_rejected() {
     let mut engine = engine();
-    let mut seeded = observation(1_000, ICAO, TrafficLink::Uat978);
+    let mut seeded = observation(
+        1_000,
+        ICAO,
+        ObservationOrigin::AdsbDirect { band: Band::Uat978 },
+    );
     let stale_reference = Wgs84Position {
         latitude_deg: 52.0,
         longitude_deg: 3.8,
@@ -177,7 +212,13 @@ fn a_lone_frame_resolved_far_from_its_reference_is_rejected() {
 #[test]
 fn a_surface_frame_needs_a_reference_position() {
     let mut engine = engine();
-    let mut observed = observation(1_000, ICAO, TrafficLink::Adsb1090);
+    let mut observed = observation(
+        1_000,
+        ICAO,
+        ObservationOrigin::AdsbDirect {
+            band: Band::Adsb1090,
+        },
+    );
     observed.position = Some(PositionObservation::CprSurface(EVEN));
     ingest(&mut engine, observed.clone());
 
@@ -224,7 +265,7 @@ fn a_surface_frame_needs_a_reference_position() {
 #[test]
 fn a_position_absent_track_gains_a_position_and_then_expires() {
     let mut engine = engine();
-    let mut identified = observation(0, ICAO, TrafficLink::ModeS);
+    let mut identified = observation(0, ICAO, ObservationOrigin::ModeSReply);
     identified.pressure_altitude_ft = Some(1_200);
     let created = ingest(&mut engine, identified);
     let id = created[0].id();

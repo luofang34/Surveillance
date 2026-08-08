@@ -5,14 +5,16 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use aero_link::{
-    AddressQualifier, Adsb1090Message, AirGroundState, Altitude, AltitudeKind, Band,
-    CorrectedUatFrame, GeoPosition, ReceiverSource, ReceptionEvent, SourceTransport, StateVector,
-    UatDecoder, UatDownlink, UatFrameClass, UatMessage, UatReception,
+    AddressQualifier, Adsb1090Message, AirGroundState, Altitude, AltitudeKind, CorrectedUatFrame,
+    GeoPosition, ReceiverSource, ReceptionEvent, StateVector, UatDecoder, UatDownlink,
+    UatFrameClass, UatMessage, UatReception,
 };
 
-use crate::normalize::NormalizeError;
-use crate::observation::{PositionObservation, TrafficLink, TrafficObservation};
-use crate::track::AddressNamespace;
+use crate::NormalizeError;
+use surveillance_core::{
+    AddressNamespace, Band, DeliveryPath, ObservationOrigin, PositionObservation, SourceRef,
+    TrafficObservation,
+};
 
 /// A published DF 17 airborne-position frame (even half of a known pair).
 const DF17_AIRBORNE_POSITION: &str = "8D40621D58C382D690C8AC2863A7";
@@ -33,13 +35,18 @@ fn hex_bytes(hex: &str) -> Vec<u8> {
 }
 
 fn receiver() -> ReceiverSource {
-    ReceiverSource::new(3, SourceTransport::Usb)
+    ReceiverSource::new(3, aero_link::SourceTransport::Usb)
+}
+
+/// The canonical source the adapter must produce from `receiver()`.
+fn expected_source() -> SourceRef {
+    SourceRef::new(3, 0, DeliveryPath::LocalReceiver)
 }
 
 fn normalize_1090(hex: &str, at: u64) -> Result<TrafficObservation, NormalizeError> {
     let event = ReceptionEvent::adsb1090(at, decode(hex)).with_source(receiver());
     let projection = event.traffic().expect("a 1090 reception is traffic");
-    TrafficObservation::normalize(&projection)
+    crate::normalize(&projection)
 }
 
 fn corrected(class: UatFrameClass) -> CorrectedUatFrame {
@@ -74,9 +81,14 @@ fn uat_downlink(qualifier: AddressQualifier, address: u32) -> UatDownlink {
 fn a_direct_airborne_position_normalizes_to_an_icao_key_and_a_cpr_frame() {
     let observation = normalize_1090(DF17_AIRBORNE_POSITION, 5_000).expect("frame normalizes");
 
-    assert_eq!(observation.received_at_micros, 5_000);
-    assert_eq!(observation.source, receiver());
-    assert_eq!(observation.link, TrafficLink::Adsb1090);
+    assert_eq!(observation.time.received_at_micros, 5_000);
+    assert_eq!(observation.source, expected_source());
+    assert_eq!(
+        observation.origin,
+        ObservationOrigin::AdsbDirect {
+            band: Band::Adsb1090
+        }
+    );
     assert_eq!(observation.key.namespace, AddressNamespace::Icao);
     assert_eq!(observation.key.address, 0x0040_621D);
 
@@ -136,42 +148,46 @@ fn each_uat_qualifier_selects_its_namespace_and_link() {
         (
             AddressQualifier::AdsbIcao,
             AddressNamespace::Icao,
-            TrafficLink::Uat978,
+            ObservationOrigin::AdsbDirect { band: Band::Uat978 },
         ),
         (
             AddressQualifier::National,
             AddressNamespace::AdsbNonIcao,
-            TrafficLink::Uat978,
+            ObservationOrigin::AdsbDirect { band: Band::Uat978 },
         ),
         (
             AddressQualifier::TisbIcao,
             AddressNamespace::Icao,
-            TrafficLink::Tisb { band: Band::Uat978 },
+            ObservationOrigin::Tisb {
+                band: surveillance_core::Band::Uat978,
+            },
         ),
         (
             AddressQualifier::TisbTrackFile,
             AddressNamespace::TisbTrackFile,
-            TrafficLink::Tisb { band: Band::Uat978 },
+            ObservationOrigin::Tisb {
+                band: surveillance_core::Band::Uat978,
+            },
         ),
         (
             AddressQualifier::Vehicle,
             AddressNamespace::SurfaceVehicle,
-            TrafficLink::Uat978,
+            ObservationOrigin::AdsbDirect { band: Band::Uat978 },
         ),
         (
             AddressQualifier::FixedBeacon,
             AddressNamespace::FixedBeacon,
-            TrafficLink::Uat978,
+            ObservationOrigin::AdsbDirect { band: Band::Uat978 },
         ),
     ];
 
     for (qualifier, namespace, link) in cases {
         let event = uat_event(2_000, uat_downlink(qualifier, 0x00AB_CDEF));
         let projection = event.traffic().expect("a UAT downlink is traffic");
-        let observation = TrafficObservation::normalize(&projection).expect("downlink normalizes");
+        let observation = crate::normalize(&projection).expect("downlink normalizes");
 
         assert_eq!(observation.key.namespace, namespace, "for {qualifier:?}");
-        assert_eq!(observation.link, link, "for {qualifier:?}");
+        assert_eq!(observation.origin, link, "for {qualifier:?}");
         assert_eq!(observation.key.address, 0x00AB_CDEF);
     }
 }
@@ -185,7 +201,7 @@ fn a_reserved_qualifier_is_refused_rather_than_guessed() {
         let event = uat_event(2_000, uat_downlink(qualifier, 1));
         let projection = event.traffic().expect("a UAT downlink is traffic");
         assert_eq!(
-            TrafficObservation::normalize(&projection),
+            crate::normalize(&projection),
             Err(NormalizeError::ReservedAddressQualifier {
                 qualifier: expected
             })
@@ -206,7 +222,7 @@ fn equal_addresses_under_different_qualifiers_normalize_to_distinct_keys() {
         let event = uat_event(2_000, uat_downlink(qualifier, 0x0000_00AA));
         let projection = event.traffic().expect("a UAT downlink is traffic");
         keys.push(
-            TrafficObservation::normalize(&projection)
+            crate::normalize(&projection)
                 .expect("downlink normalizes")
                 .key,
         );
@@ -252,7 +268,7 @@ fn a_uat_state_vector_supplies_a_decoded_position_in_explicit_units() {
 
     let event = uat_event(3_000, downlink);
     let projection = event.traffic().expect("a UAT downlink is traffic");
-    let observation = TrafficObservation::normalize(&projection).expect("downlink normalizes");
+    let observation = crate::normalize(&projection).expect("downlink normalizes");
 
     let Some(PositionObservation::Decoded(position)) = observation.position else {
         panic!(
@@ -264,7 +280,10 @@ fn a_uat_state_vector_supplies_a_decoded_position_in_explicit_units() {
     assert_eq!(position.longitude_deg, -73.778925);
     assert_eq!(observation.pressure_altitude_ft, Some(12_500));
     assert_eq!(observation.geometric_altitude_ft, None);
-    assert_eq!(observation.air_ground, Some(AirGroundState::Subsonic));
+    assert_eq!(
+        observation.air_ground,
+        Some(surveillance_core::AirGroundState::Subsonic)
+    );
     assert_eq!(observation.quality.nic, Some(8));
 
     let velocity = observation.velocity.expect("velocity applied");
@@ -281,7 +300,7 @@ fn a_uat_state_vector_supplies_a_decoded_position_in_explicit_units() {
 fn a_downlink_without_optional_blocks_leaves_every_field_absent() {
     let event = uat_event(4_000, uat_downlink(AddressQualifier::AdsbIcao, 0x00AC_82EC));
     let projection = event.traffic().expect("a UAT downlink is traffic");
-    let observation = TrafficObservation::normalize(&projection).expect("downlink normalizes");
+    let observation = crate::normalize(&projection).expect("downlink normalizes");
 
     assert_eq!(observation.position, None);
     assert_eq!(observation.pressure_altitude_ft, None);

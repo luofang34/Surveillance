@@ -8,19 +8,20 @@
 //! from the target when it did not.
 
 use aero_link::{
-    AddressQualifier, Altitude, AltitudeKind, Band, EmergencyState, HeadingKind, HeadingReference,
-    ModeStatus, StateVector, TrafficProjection, UatMessage, UatReception,
+    AddressQualifier, Altitude, AltitudeKind, ModeStatus, StateVector, TrafficProjection,
+    UatMessage, UatReception,
+};
+use surveillance_core::{
+    AddressNamespace, Band, Callsign, ObservationOrigin, ObservationTime, PositionObservation,
+    Squawk, TrackKey, TrafficObservation, VelocityObservation, Wgs84Position,
 };
 
-use crate::normalize::NormalizeError;
-use crate::observation::{
-    Callsign, PositionObservation, Squawk, TrafficLink, TrafficObservation, VelocityObservation,
-    Wgs84Position,
-};
-use crate::track::{AddressNamespace, TrackKey};
+use crate::NormalizeError;
+use crate::source::source_ref;
+use crate::vocabulary;
 
 /// Normalize one 978 MHz reception.
-pub(super) fn normalize(
+pub(crate) fn normalize(
     projection: &TrafficProjection<'_>,
     reception: &UatReception,
 ) -> Result<TrafficObservation, NormalizeError> {
@@ -30,8 +31,8 @@ pub(super) fn normalize(
 
     let (namespace, link) = classify(downlink.address_qualifier)?;
     let mut observation = TrafficObservation::new(
-        projection.received_at_micros,
-        projection.source,
+        ObservationTime::local(projection.received_at_micros),
+        source_ref(projection.source),
         link,
         TrackKey::new(namespace, downlink.address),
     );
@@ -49,15 +50,27 @@ pub(super) fn normalize(
 /// Map a UAT address qualifier onto a namespace and a link class.
 fn classify(
     qualifier: AddressQualifier,
-) -> Result<(AddressNamespace, TrafficLink), NormalizeError> {
-    let ground = TrafficLink::Tisb { band: Band::Uat978 };
+) -> Result<(AddressNamespace, ObservationOrigin), NormalizeError> {
+    let ground = ObservationOrigin::Tisb { band: Band::Uat978 };
     Ok(match qualifier {
-        AddressQualifier::AdsbIcao => (AddressNamespace::Icao, TrafficLink::Uat978),
-        AddressQualifier::National => (AddressNamespace::AdsbNonIcao, TrafficLink::Uat978),
+        AddressQualifier::AdsbIcao => (
+            AddressNamespace::Icao,
+            ObservationOrigin::AdsbDirect { band: Band::Uat978 },
+        ),
+        AddressQualifier::National => (
+            AddressNamespace::AdsbNonIcao,
+            ObservationOrigin::AdsbDirect { band: Band::Uat978 },
+        ),
         AddressQualifier::TisbIcao => (AddressNamespace::Icao, ground),
         AddressQualifier::TisbTrackFile => (AddressNamespace::TisbTrackFile, ground),
-        AddressQualifier::Vehicle => (AddressNamespace::SurfaceVehicle, TrafficLink::Uat978),
-        AddressQualifier::FixedBeacon => (AddressNamespace::FixedBeacon, TrafficLink::Uat978),
+        AddressQualifier::Vehicle => (
+            AddressNamespace::SurfaceVehicle,
+            ObservationOrigin::AdsbDirect { band: Band::Uat978 },
+        ),
+        AddressQualifier::FixedBeacon => (
+            AddressNamespace::FixedBeacon,
+            ObservationOrigin::AdsbDirect { band: Band::Uat978 },
+        ),
         AddressQualifier::Reserved6 => {
             return Err(NormalizeError::ReservedAddressQualifier { qualifier: 6 });
         }
@@ -75,34 +88,37 @@ fn apply_state_vector(observation: &mut TrafficObservation, state_vector: &State
         }));
     }
     apply_altitude(observation, state_vector.altitude);
-    observation.air_ground = Some(state_vector.air_ground_state);
+    observation.air_ground = Some(vocabulary::air_ground(state_vector.air_ground_state));
     observation.quality.nic = Some(state_vector.navigation_integrity_category);
 
     let degrees = state_vector.heading_degrees.map(f64::from);
-    let (heading_deg, track_angle_deg_true, heading_reference) = match state_vector.heading_kind {
-        Some(HeadingKind::Track) => (None, degrees, None),
-        Some(HeadingKind::Magnetic) => (degrees, None, Some(HeadingReference::MagneticNorth)),
-        Some(HeadingKind::True) => (degrees, None, Some(HeadingReference::TrueNorth)),
-        None => (None, None, None),
+    let heading_reference = state_vector
+        .heading_kind
+        .and_then(vocabulary::heading_reference);
+    let reports_track = matches!(
+        state_vector.heading_kind,
+        Some(aero_link::HeadingKind::Track)
+    );
+    let (heading_deg, track_angle_deg_true) = if reports_track {
+        (None, degrees)
+    } else if heading_reference.is_some() {
+        (degrees, None)
+    } else {
+        (None, None)
     };
-    observation.velocity = Some(VelocityObservation {
-        ground_speed_kt: state_vector.speed_knots.map(f64::from),
-        track_angle_deg_true,
-        heading_deg,
-        heading_reference,
-        vertical_rate_fpm: state_vector.vertical_rate_fpm.map(i32::from),
-        vertical_rate_source: state_vector.vertical_rate_source.map(vertical_rate_source),
-        ..VelocityObservation::default()
-    });
-}
 
-/// UAT reports the vertical-rate source as an altitude kind; the exported
-/// schema names it with the 1090 vocabulary so one consumer reads both links.
-fn vertical_rate_source(kind: AltitudeKind) -> aero_link::VerticalRateSource {
-    match kind {
-        AltitudeKind::Barometric => aero_link::VerticalRateSource::Barometric,
-        AltitudeKind::Geometric => aero_link::VerticalRateSource::Geometric,
-    }
+    // `VelocityObservation` is non-exhaustive so the schema can grow, which
+    // means an adapter fills it field by field rather than by literal.
+    let mut velocity = VelocityObservation::default();
+    velocity.ground_speed_kt = state_vector.speed_knots.map(f64::from);
+    velocity.track_angle_deg_true = track_angle_deg_true;
+    velocity.heading_deg = heading_deg;
+    velocity.heading_reference = heading_reference;
+    velocity.vertical_rate_fpm = state_vector.vertical_rate_fpm.map(i32::from);
+    velocity.vertical_rate_source = state_vector
+        .vertical_rate_source
+        .map(vocabulary::vertical_rate_from_altitude);
+    observation.velocity = Some(velocity);
 }
 
 fn apply_mode_status(
@@ -110,7 +126,7 @@ fn apply_mode_status(
     mode_status: &ModeStatus,
 ) -> Result<(), NormalizeError> {
     observation.emitter_category = Some(mode_status.emitter_category);
-    observation.emergency = Some(emergency_state(mode_status.emergency_status));
+    observation.emergency = Some(vocabulary::emergency_code(mode_status.emergency_status));
     observation.quality.nac_p = Some(mode_status.nac_p);
     observation.quality.nac_v = Some(mode_status.nac_v);
     observation.quality.sil = Some(mode_status.source_integrity_level);
@@ -125,28 +141,12 @@ fn apply_mode_status(
             }
         }
         kind => {
-            observation.callsign = Some(Callsign {
-                text: text.clone(),
-                kind,
-            });
+            let mut callsign = Callsign::new(text.as_str());
+            callsign.kind = kind.map(vocabulary::callsign_kind);
+            observation.callsign = Some(callsign);
         }
     }
     Ok(())
-}
-
-/// Map the UAT emergency code onto the shared emergency vocabulary; the code
-/// points are assigned identically on both links.
-fn emergency_state(code: u8) -> EmergencyState {
-    match code {
-        0 => EmergencyState::None,
-        1 => EmergencyState::General,
-        2 => EmergencyState::Medical,
-        3 => EmergencyState::MinimumFuel,
-        4 => EmergencyState::NoCommunication,
-        5 => EmergencyState::UnlawfulInterference,
-        6 => EmergencyState::DownedAircraft,
-        _ => EmergencyState::Reserved,
-    }
 }
 
 fn apply_altitude(observation: &mut TrafficObservation, altitude: Option<Altitude>) {

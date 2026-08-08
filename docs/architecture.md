@@ -16,11 +16,11 @@ it. Everything platform-bound is an adapter around the portable core.
 ## Layer ownership
 
 ```text
-aero-link reception (ReceptionEvent + provenance)
-        |
-        |  ReceptionEvent::traffic() borrowed projection
-        v
-observation normalization  (surveillance-core, stateless)
+aero-link reception        panel / provider / replay
+        |                              |
+        |  traffic() projection        |  its own adapter
+        v                              v
+observation normalization  (surveillance-aero-link and siblings, stateless)
         |
         v
 SurveillanceEngine         (surveillance-core, single-writer state)
@@ -58,41 +58,49 @@ it; Surveillance sees only the borrowed traffic projection.
 ## Crate map
 
 ```text
-aero-link (default-features = false)
+surveillance-core ---- no_std + alloc, source-neutral, depends on no decoder
         ^
-        |
-surveillance-core ---- no_std + alloc, the only load-bearing crate
-        ^
-        |------ surveillance (umbrella re-export)
+        |------ surveillance-aero-link (adapter; depends on aero-link)
+        |------ surveillance (umbrella re-export; adapter is opt-in)
         |------ surveillance-gdl90     (planned: TrackSnapshot -> GDL 90 payloads)
         |------ surveillance-geolibre  (planned: TrackDelta -> aircraft features)
         |------ host testing apps      (planned: replay CLI, MapLibre viewer;
                                         std/host feature-gated, never default)
 ```
 
-- `surveillance-core` depends only on `aero-link` (portable API), `serde`,
-  and `thiserror` in portable configurations. It contains no channels, tasks,
-  locks, executors, sockets, timers, or global registries.
+- `surveillance-core` depends only on `libm`, `serde`, and `thiserror`. It
+  names no link decoder, so a consumer fed by a panel or a network provider
+  never links one. It contains no channels, tasks, locks, executors, sockets,
+  timers, or global registries.
+- `surveillance-aero-link` is the RF adapter: it depends on both `aero-link`
+  and the engine, and owns every conversion between the two vocabularies.
+  Because both are foreign to it, those conversions are explicit functions
+  rather than `From` implementations, so a variant added upstream fails to
+  compile here instead of silently arriving as something else.
+- `scripts/check-boundaries.sh` enforces the split in CI.
 - `surveillance` is the umbrella package applications name in `Cargo.toml`.
   Its default features re-export exactly the portable core. Host-side testing
   binaries hang off opt-in features so that library consumers never pay for
   them.
 - Adapter crates depend on core output types only. A renderer or transport
   never imports CPR, fusion, identity, or track internals.
-- Application crates may enable `aero-link/std` or platform adapters; the
-  core must build with `aero-link` default features only.
+- Application crates enable whichever adapters they actually need. The
+  umbrella's `aero-link` feature is opt-in, so a default build links no
+  decoder.
 
 ## Input contract
 
-- `ReceptionEvent.received_at_micros` is runtime-monotonic microseconds and
-  is the only clock. It orders observations, ages fields, and drives
-  expiration. It is not UTC. The engine never reads a wall clock and never
-  starts a timer; time advances only through `advance_time`.
+- An observation's time is runtime-monotonic microseconds in one
+  caller-supplied domain, and is the only clock. It orders observations, ages
+  fields, and drives expiration. It is not UTC. The engine never reads a wall
+  clock and never starts a timer; time advances only through `advance_time`.
 - UAT firmware timestamps and Mode S receiver sample indexes are per-radio
   metadata. They are never compared across radios and never used as a
   cross-radio clock.
-- `ReceiverSource` provenance survives normalization and fusion; every
-  exported field can name the input that supplied it.
+- `SourceRef` provenance survives normalization and fusion; every exported
+  field can name the input that supplied it. It carries a runtime-local
+  identity and the kind of path the observation arrived on — never a
+  receiver, socket, provider, or SDK object.
 - Observations may be duplicated, delayed, or out of order, and several
   receivers may observe the same band. Arrival order is a hint, never a
   correctness assumption: a newer-timestamped value already applied is not
@@ -103,19 +111,22 @@ surveillance-core ---- no_std + alloc, the only load-bearing crate
 
 ## Observation normalization
 
-`surveillance-core` defines a stateless, synchronous adapter from the
-borrowed `ReceptionEvent::traffic()` projection into its own owned
+`surveillance-aero-link` is a stateless, synchronous adapter from the
+borrowed `ReceptionEvent::traffic()` projection into the engine's canonical
 `TrafficObservation`:
 
 ```rust,ignore
 if let Some(projection) = event.traffic() {
-    let observation = TrafficObservation::normalize(&projection)?;
+    let observation = surveillance_aero_link::normalize(&projection)?;
     engine.ingest(observation, |delta| consume(delta))?;
 }
 ```
 
-- One `TrafficObservation` is one normalized traffic measurement: track key,
-  link classification, monotonic time, receiver source, and the optional
+Every other source has its own adapter reaching the same `ingest` call. The
+engine distinguishes them only by the provenance they declare, never by type.
+
+- One `TrafficObservation` is one canonical traffic measurement: track key,
+  link classification, monotonic time, source reference, and the optional
   measured fields (position or undecoded CPR, altitudes, velocity, callsign,
   squawk, quality indicators).
 - Classification uses `aero-link`'s typed fields — the UAT address qualifier
@@ -125,9 +136,9 @@ if let Some(projection) = event.traffic() {
 - Non-traffic receptions (FIS-B, ground uplinks) never reach the engine and
   must leave its state untouched — the projection returns `None` and the
   caller skips ingestion.
-- `TrafficLink` records the originating link class (direct 1090 ES, Mode S
-  reply, direct UAT, ADS-R, TIS-B) with its band. It is the fusion-precedence
-  axis and part of every field's provenance. On 978 MHz the qualifier does
+- `ObservationOrigin` records what produced the observation, carrying a band
+  only where a radio received it. It is the fusion-precedence axis and part of
+  every field's provenance. On 978 MHz the qualifier does
   not separate an ADS-R rebroadcast from a TIS-B report, so both normalize to
   a TIS-B link: that never claims a report came straight from the target when
   it did not.
@@ -243,25 +254,62 @@ Both directions are evidence-driven and reversible without identity churn.
   position-absent tracks explicitly; position history begins when the first
   valid position arrives.
 
+## Origin, delivery, and time
+
+Three facts about an observation are kept separate, because conflating them
+is how a late network report ends up outranking live local data:
+
+- **Origin** (`ObservationOrigin`) is what produced the surveillance fact:
+  the target's own ADS-B or Mode S reply, a rebroadcast, a ground TIS-B
+  report, radar, multilateration, a provider's or panel's fusion, replay, or
+  an explicitly unknown source. RF origins carry the band they were received
+  on; the others have none, because they never touched a radio here.
+- **Delivery** (`SourceRef`) is how the observation entered this runtime:
+  a local receiver, installed avionics, a network provider, replay, or a
+  simulator, plus a runtime-local identity and an **incarnation**. A source
+  that drops and reconnects returns with the same identity and a higher
+  epoch, so provenance from a dead session can neither be refreshed by nor
+  confused with its successor.
+- **Time** (`ObservationTime`) separates when a report arrived from when the
+  measurement was made. A local reception is measured at ingress. A trusted
+  adapter may map a source's own clock into the local monotonic domain and
+  declare the uncertainty of that mapping. An adapter that cannot establish
+  the measurement time says so, and the value is then explicitly untrustworthy
+  rather than silently treated as current.
+
+Raw UTC and provider clocks are never compared inside the engine. Mapping
+into the local domain is an adapter's responsibility, as is declaring how
+well it did so; a mapping that lands after ingress is clamped, because
+nothing can be measured after it is received and a skewed clock must not be
+able to claim the future.
+
 ## Field fusion and freshness
 
 Every fused field is a `TimedField<T>`: value, observation time, quality,
-and provenance (link, namespace, receiver source). Rules:
+and provenance (origin, namespace, source reference). Rules:
 
 - Each field ages independently. A callsign update cannot refresh an old
   position; freshness windows are per-field policy in `FreshnessPolicy`.
 - Conflicts resolve through documented quality-then-age precedence, never
   last-writer-wins. An older observation arriving later cannot overwrite a
   newer applied value.
-- Link precedence prefers direct reception over rebroadcast when both are
-  fresh and of comparable quality (direct ADS-B over Mode S reply over ADS-R
-  over TIS-B), but a fresh rebroadcast beats a stale direct value.
-- The decision procedure evaluates, in order: reject a strictly older
-  observation; accept anything over a value past its freshness window;
-  between fresh values prefer the higher link rank; at equal rank prefer the
-  newer observation; and separate two observations of the same instant by
-  quality, where better means no indicator is worse and at least one is
-  better.
+- Origin precedence prefers the target's own transmissions over anything
+  derived about it (direct ADS-B, then Mode S reply, then ADS-R, then MLAT,
+  radar, and TIS-B, then panel- and provider-fused products, then replay and
+  unknown), but a fresh ground-derived report beats a stale direct value.
+- **Delivery path never grants authority.** A report is neither more nor less
+  trustworthy for having arrived over a socket rather than a radio; only its
+  origin, declared quality, and trustworthy age decide.
+- The decision procedure evaluates, in order: refuse a value whose time was
+  never established when the applied value is established and still fresh;
+  reject a strictly older observation; accept anything over a value past its
+  freshness window; between fresh values prefer the higher origin rank; at
+  equal rank prefer the newer observation; and separate two observations of
+  the same instant by quality, where better means no indicator is worse and
+  at least one is better.
+- Age is always the pessimistic end of any timing uncertainty, so a loosely
+  mapped provider time is treated as older than a tightly mapped one rather
+  than as equally current.
 - Duplicate observations (same content from multiple receivers) update
   provenance and freshness without generating spurious deltas.
 - Units are explicit in field names and newtypes: WGS84 degrees, feet,
@@ -334,13 +382,13 @@ core contract, not an optional feature:
   removing or renaming fields or variants, changing units or meaning, or
   changing Serde tagging always requires a version bump.
 - Every exported field keeps provenance a detail view can display:
-  originating link and band, address namespace, `ReceiverSource`, and the
+  originating link and band, address namespace, `SourceRef`, and the
   observation's monotonic time. A snapshot may additionally reference the
   receptions that supplied its current position, altitude, velocity, and
   identity, so an application can show the underlying frames from its own
   recording without Surveillance storing them.
-- All exported times are runtime-monotonic microseconds, consistent with
-  `ReceptionEvent.received_at_micros`. A service exporting deltas off the
+- All exported times are runtime-monotonic microseconds in the one
+  caller-supplied domain. A service exporting deltas off the
   runtime attaches one monotonic-origin-to-UTC correspondence
   (`TimeCorrespondence`) per stream at that boundary. The engine itself
   never touches UTC.
