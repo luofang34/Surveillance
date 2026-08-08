@@ -10,14 +10,16 @@
 use surveillance_core::{
     AddressNamespace, AirGroundState, Band, CURRENT_TRACK_SCHEMA_VERSION, Callsign, CallsignKind,
     DeliveryPath, EmergencyState, FieldProvenance, FieldQuality, ObservationOrigin,
-    ObservationTime, SourceRef, Squawk, TimedField, TrackDelta, TrackId, TrackKey, TrackRecord,
-    TrackRecordHeader, TrackSchemaError, TrackSnapshot, VelocityObservation, VerticalRateSource,
-    Wgs84Position,
+    ObservationTime, SourceRef, Squawk, TimeBasis, TimedField, TrackDelta, TrackId, TrackKey,
+    TrackPhase, TrackRecord, TrackRecordHeader, TrackSchemaError, TrackSnapshot,
+    VelocityObservation, VerticalRateSource, Wgs84Position,
 };
 
 const CREATED_FIXTURE: &str = include_str!("fixtures/track_v2_created.json");
 /// A record written before origin, delivery, and time were separated.
 const SUPERSEDED_FIXTURE: &str = include_str!("fixtures/track_v1_created_superseded.json");
+/// A non-radio record: the wire forms the ADS-B fixture never reaches.
+const PROVIDER_FIXTURE: &str = include_str!("fixtures/track_v2_provider.json");
 
 const KEY: TrackKey = TrackKey::new(AddressNamespace::Icao, 0x00AC_82EC);
 const TRACK_FILE_KEY: TrackKey = TrackKey::new(AddressNamespace::TisbTrackFile, 66);
@@ -212,5 +214,85 @@ fn a_superseded_record_is_refused_by_version_not_misparsed() {
             found: 1,
             supported: CURRENT_TRACK_SCHEMA_VERSION,
         }
+    );
+}
+
+/// A provider-fused record with a mapped time, an unknown-time field, and a
+/// non-radio origin. The ADS-B fixture exercises none of those wire forms,
+/// so a change to any of them would otherwise round-trip untested.
+fn provider_record() -> TrackRecord {
+    let key = TrackKey::new(AddressNamespace::Icao, 0x0040_621D);
+    let provider = SourceRef::new(7, 2, DeliveryPath::NetworkProvider);
+    let provenance = FieldProvenance::new(
+        ObservationOrigin::ProviderFused,
+        AddressNamespace::Icao,
+        provider,
+    );
+
+    let mut snapshot = TrackSnapshot::new(TrackId::new(9), key, 2_000_000);
+    snapshot.phase = TrackPhase::Coasting;
+    snapshot.position = Some(TimedField::new(
+        Wgs84Position {
+            latitude_deg: -33.946111,
+            longitude_deg: 151.177222,
+        },
+        ObservationTime::mapped(2_500_000, 2_100_000, 75_000),
+        FieldQuality::new(Some(7), Some(8), None, Some(1)),
+        provenance,
+    ));
+    // A second source that would not say when it measured.
+    snapshot.pressure_altitude_ft = Some(TimedField::new(
+        31_000,
+        ObservationTime::unknown_source_time(2_500_000),
+        FieldQuality::default(),
+        FieldProvenance::new(
+            ObservationOrigin::Unknown,
+            AddressNamespace::Icao,
+            SourceRef::new(8, 0, DeliveryPath::Unspecified),
+        ),
+    ));
+    snapshot.last_observed_at_micros = 2_100_000;
+    TrackRecord::new(TrackDelta::Updated(snapshot))
+}
+
+#[test]
+fn the_non_radio_fixture_round_trips_with_its_time_bases_intact() {
+    let decoded: TrackRecord =
+        serde_json::from_str(PROVIDER_FIXTURE).expect("provider fixture decodes");
+    assert_eq!(decoded, provider_record());
+
+    let serialized = serde_json::to_string(&provider_record()).expect("record serializes");
+    let fixture_value: serde_json::Value =
+        serde_json::from_str(PROVIDER_FIXTURE).expect("fixture JSON parses");
+    let serialized_value: serde_json::Value =
+        serde_json::from_str(&serialized).expect("serialized JSON parses");
+    assert_eq!(serialized_value, fixture_value);
+}
+
+#[test]
+fn a_mapped_time_keeps_its_uncertainty_through_a_round_trip() {
+    let decoded: TrackRecord =
+        serde_json::from_str(PROVIDER_FIXTURE).expect("provider fixture decodes");
+    let TrackDelta::Updated(snapshot) = decoded.into_delta().expect("current version") else {
+        panic!("the provider fixture is an update");
+    };
+
+    let position = snapshot.position.as_ref().expect("position present");
+    assert_eq!(
+        position.time.basis,
+        TimeBasis::Mapped {
+            uncertainty_micros: 75_000
+        },
+        "uncertainty is what makes a mapped time honest; it must survive the wire"
+    );
+
+    let altitude = snapshot
+        .pressure_altitude_ft
+        .as_ref()
+        .expect("altitude present");
+    assert_eq!(altitude.time.basis, TimeBasis::UnknownSourceTime);
+    assert!(
+        !altitude.time.is_established(),
+        "an unknown source time must not decode as an established one"
     );
 }
