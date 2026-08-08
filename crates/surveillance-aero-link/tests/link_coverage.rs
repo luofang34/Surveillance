@@ -11,7 +11,7 @@
 use aero_link::{Adsb1090Message, ReceiverSource, ReceptionEvent, SourceTransport};
 use surveillance_aero_link::{NormalizeError, normalize};
 use surveillance_core::{
-    AddressNamespace, Band, HeadingReference, ObservationOrigin, TrafficObservation,
+    AddressNamespace, Band, HeadingReference, ObservationOrigin, Squawk, TrafficObservation,
 };
 
 /// Mode S 24-bit parity over a message whose parity field is zero.
@@ -127,6 +127,12 @@ fn fine_tisb_without_an_icao_address_becomes_a_track_file() {
 
     assert_eq!(observation.key.namespace, AddressNamespace::TisbTrackFile);
     assert_eq!(observation.key.address, 0x0000_0042);
+    assert_eq!(
+        observation.origin,
+        ObservationOrigin::Tisb {
+            band: Band::Adsb1090
+        }
+    );
 }
 
 #[test]
@@ -240,7 +246,7 @@ fn a_confirmed_reply_supplies_altitude_under_a_mode_s_origin() {
 
 #[test]
 fn a_confirmed_identity_reply_supplies_a_squawk() {
-    // Mode A 1200 in the identity field of a DF 5 reply.
+    // An identity field encoding Mode A 3000.
     let frame = surveillance_reply(5, 0x00AB_CDEF, [0x00, 0x0A, 0x00]);
     let mut message = Adsb1090Message::decode(&frame, None).expect("a DF 5 reply decodes");
     message.frame.confirm_address_parity();
@@ -250,7 +256,13 @@ fn a_confirmed_identity_reply_supplies_a_squawk() {
     let observation = normalize(&projection).expect("a confirmed reply normalizes");
 
     assert_eq!(observation.origin, ObservationOrigin::ModeSReply);
-    assert!(observation.squawk.is_some());
+    // Asserting the value, not merely its presence: the DF 5 arm sets a
+    // squawk unconditionally, so `is_some` would hold even if the identity
+    // code decoded to something else entirely.
+    assert_eq!(
+        observation.squawk,
+        Some(Squawk::try_from(3000).expect("a valid Mode A code")),
+    );
     assert_eq!(observation.pressure_altitude_ft, None);
 }
 
@@ -274,9 +286,14 @@ fn a_ground_velocity_reports_a_track_angle_and_no_heading() {
         "a ground velocity reports no heading"
     );
     assert_eq!(velocity.heading_reference, None);
+    // Pin the value, not its presence: swapping the atan2 arguments is the
+    // likeliest error in the derivation and would still yield `Some`.
+    let track = velocity
+        .track_angle_deg_true
+        .expect("the track angle is derived from the velocity components");
     assert!(
-        velocity.track_angle_deg_true.is_some(),
-        "the track angle is derived from the velocity components"
+        (track - 8.13).abs() < 0.01,
+        "one knot east and seven north is a little east of north, got {track}"
     );
 }
 
@@ -306,5 +323,50 @@ fn an_airspeed_velocity_reports_a_magnetic_heading() {
     assert_eq!(
         velocity.track_angle_deg_true, None,
         "a heading is not a track angle"
+    );
+}
+
+#[test]
+fn a_downlink_format_that_names_no_target_is_refused() {
+    // DF 1 is outside the formats that carry or recover an address, so the
+    // decoder reports none and there is nothing to key a track on.
+    let mut payload = [0_u8; 4];
+    payload[0] = 1 << 3;
+    let checksum = parity(&payload);
+    let mut frame = payload.to_vec();
+    frame.extend_from_slice(&[
+        (checksum >> 16) as u8,
+        (checksum >> 8) as u8,
+        checksum as u8,
+    ]);
+
+    assert_eq!(
+        observe(&frame),
+        Err(NormalizeError::NoTargetIdentity { downlink_format: 1 })
+    );
+}
+
+#[test]
+fn an_adsr_relay_of_a_non_icao_target_keeps_it_unclassified() {
+    // A velocity message element with the IMF bit set: the relayed address is
+    // not an ICAO one, so it must not land in the ICAO namespace even though
+    // the rebroadcast itself is trustworthy. Type code 19 carries IMF in the
+    // ninth message bit.
+    let mut message = [0_u8; 7];
+    message[0] = (19 << 3) | 1;
+    message[1] = 0x80;
+    let observation =
+        observe(&df18(6, 0x0000_0099, message)).expect("a non-ICAO ADS-R relay normalizes");
+
+    assert_eq!(
+        observation.key.namespace,
+        AddressNamespace::AdsbNonIcao,
+        "a relayed non-ICAO address is still not an ICAO address"
+    );
+    assert_eq!(
+        observation.origin,
+        ObservationOrigin::AdsR {
+            band: Band::Adsb1090
+        }
     );
 }

@@ -9,9 +9,9 @@
 
 use surveillance::{
     AddressNamespace, Band, CURRENT_TRACK_SCHEMA_VERSION, Callsign, DeliveryPath, EngineConfig,
-    ObservationOrigin, ObservationTime, PositionObservation, SourceRef, SurveillanceEngine,
-    TimeBasis, TrackDelta, TrackId, TrackKey, TrackRecord, TrackSnapshot, TrafficObservation,
-    Wgs84Position,
+    FieldQuality, ObservationOrigin, ObservationTime, PositionObservation, SourceRef,
+    SurveillanceEngine, TimeBasis, TrackDelta, TrackId, TrackKey, TrackRecord, TrackSnapshot,
+    TrafficObservation, Wgs84Position,
 };
 
 #[test]
@@ -157,19 +157,30 @@ fn an_installed_panel_drives_the_engine_under_its_own_origin() {
 fn a_simulated_source_is_tracked_like_any_other() {
     let mut engine = SurveillanceEngine::new(EngineConfig::default());
     let key = TrackKey::new(AddressNamespace::SelfAssigned, 0x0000_0001);
+    let simulator = SourceRef::new(3, 0, DeliveryPath::Simulator);
+    let mut observation = TrafficObservation::new(
+        ObservationTime::local(1_000),
+        simulator,
+        ObservationOrigin::Replay,
+        key,
+    );
+    observation.position = Some(PositionObservation::Decoded(Wgs84Position {
+        latitude_deg: 51.0,
+        longitude_deg: 0.0,
+    }));
     engine
-        .ingest(
-            TrafficObservation::new(
-                ObservationTime::local(1_000),
-                SourceRef::new(3, 0, DeliveryPath::Simulator),
-                ObservationOrigin::Replay,
-                key,
-            ),
-            |_| {},
-        )
+        .ingest(observation, |_| {})
         .expect("the engine accepts a simulated observation");
 
     assert_eq!(engine.track_count(), 1);
+    let position = engine
+        .snapshot(key)
+        .expect("track exists")
+        .position
+        .as_ref()
+        .expect("position applied");
+    assert_eq!(position.provenance.source, simulator);
+    assert_eq!(position.provenance.origin, ObservationOrigin::Replay);
 }
 
 /// Liveness ages from measurement, not arrival. A provider reporting
@@ -215,8 +226,10 @@ fn a_provider_with_honest_latency_coasts_on_measurement_time() {
     );
 }
 
-/// A source that will not say when it measured cannot keep a track alive
-/// forever by reporting often.
+/// Retention still applies to a source that will not say when it measured:
+/// going silent expires it like any other. Whether repeated timeless reports
+/// should be able to hold a track open indefinitely is a separate question,
+/// and one this test deliberately does not answer.
 #[test]
 fn an_unknown_source_time_does_not_grant_indefinite_liveness() {
     let mut engine = SurveillanceEngine::new(EngineConfig::default());
@@ -247,22 +260,27 @@ fn an_unknown_source_time_does_not_grant_indefinite_liveness() {
 /// The headline case the source-neutral model exists for: one aircraft seen
 /// three ways at once, with no source pretending to be something it is not,
 /// and the strongest evidence winning each field on its own merits.
-#[test]
-fn one_target_seen_through_a_radio_a_provider_and_a_panel() {
-    let mut engine = SurveillanceEngine::new(EngineConfig::default());
-    let key = TrackKey::new(AddressNamespace::Icao, 0x00AC_82EC);
+const RADIO: SourceRef = SourceRef::new(1, 0, DeliveryPath::LocalReceiver);
+const PROVIDER: SourceRef = SourceRef::new(2, 1, DeliveryPath::NetworkProvider);
+const PANEL: SourceRef = SourceRef::new(3, 0, DeliveryPath::InstalledAvionics);
 
-    let radio = SourceRef::new(1, 0, DeliveryPath::LocalReceiver);
-    let provider = SourceRef::new(2, 1, DeliveryPath::NetworkProvider);
-    let panel = SourceRef::new(3, 0, DeliveryPath::InstalledAvionics);
+/// One aircraft, reported three ways at the same instant.
+fn three_sources(key: TrackKey) -> [TrafficObservation; 3] {
+    let radio = RADIO;
+    let provider = PROVIDER;
+    let panel = PANEL;
 
-    // The provider reports first, promptly, about a moment two seconds ago.
+    // The provider and the radio describe the *same instant*, so nothing but
+    // origin can separate them. The provider even declares better quality, so
+    // a fusion that ignored origin would prefer it and this test would fail.
+    let measured_at = 1_000_000;
     let mut from_provider = TrafficObservation::new(
-        ObservationTime::mapped(1_000_000, 998_000, 20_000),
+        ObservationTime::mapped(1_050_000, measured_at, 20_000),
         provider,
         ObservationOrigin::ProviderFused,
         key,
     );
+    from_provider.quality = FieldQuality::new(Some(9), Some(9), Some(9), Some(3));
     from_provider.position = Some(PositionObservation::Decoded(Wgs84Position {
         latitude_deg: 40.100,
         longitude_deg: -74.0,
@@ -278,9 +296,10 @@ fn one_target_seen_through_a_radio_a_provider_and_a_panel() {
     );
     from_panel.callsign = Some(Callsign::new("DAL123"));
 
-    // The radio hears the aircraft itself, most recently of the three.
+    // The radio hears the aircraft itself, at the same instant the provider
+    // described, and declares no quality indicators at all.
     let mut from_radio = TrafficObservation::new(
-        ObservationTime::local(1_200_000),
+        ObservationTime::local(measured_at),
         radio,
         ObservationOrigin::AdsbDirect {
             band: Band::Adsb1090,
@@ -292,7 +311,15 @@ fn one_target_seen_through_a_radio_a_provider_and_a_panel() {
         longitude_deg: -74.0,
     }));
 
-    for observation in [from_provider, from_panel, from_radio] {
+    [from_provider, from_panel, from_radio]
+}
+
+#[test]
+fn one_target_seen_through_a_radio_a_provider_and_a_panel() {
+    let mut engine = SurveillanceEngine::new(EngineConfig::default());
+    let key = TrackKey::new(AddressNamespace::Icao, 0x00AC_82EC);
+
+    for observation in three_sources(key) {
         engine
             .ingest(observation, |_| {})
             .expect("every source reaches the same entry point");
