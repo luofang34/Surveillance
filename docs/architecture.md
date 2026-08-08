@@ -457,6 +457,34 @@ is compiled in.
   adapters. `embedded-hal` appears only in an application crate driving a
   real peripheral.
 
+## What replay records
+
+Replay records **inputs at the adapter boundary**, not canonical observations
+and not deltas. Core therefore has no serializable recorded-observation form,
+and that absence is deliberate.
+
+Recording deltas would record the engine's conclusions. A replay that reads
+them back exercises nothing — not fusion, not CPR, not lifecycle — so it
+could not detect the very regressions determinism testing exists to catch.
+
+Recording canonical observations would mean a second recording format for
+facts a reception record already carries, with its own versioning, growth
+policy, and fixtures, drifting from the schema it mirrors. `aero-link`
+already owns a versioned, round-trippable reception record; a radio replay
+feeds those receptions through the adapter and re-derives the observations,
+which proves the whole pipeline rather than the half below normalization.
+
+The same rule extends to sources that are not radios: whichever adapter
+produced an observation owns the record format for its own inputs. A network
+provider's adapter records provider reports, including the source time it
+mapped, so a replay reconstructs the identical `ObservationTime` — that
+mapping is an input to the engine, not an output of it, and it is what makes
+a non-radio replay deterministic.
+
+Determinism is therefore asserted at the stream boundary: the same recorded
+inputs, replayed through the same adapter, must produce a byte-identical
+delta stream.
+
 ## Testing strategy
 
 - Fixtures are captured `ReceptionEvent` values (aero-link's versioned
