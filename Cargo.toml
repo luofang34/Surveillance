@@ -1,0 +1,47 @@
+[package]
+name = "surveillance"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "Platform-independent aircraft tracking over aero-link traffic receptions"
+license = "MIT"
+
+[workspace]
+members = ["crates/surveillance-core"]
+default-members = ["."]
+resolver = "3"
+
+[workspace.dependencies]
+aero-link = { path = "../aero-link", default-features = false }
+serde = { version = "1.0", default-features = false, features = ["alloc", "derive"] }
+serde_json = { version = "1.0", features = ["float_roundtrip"] }
+thiserror = { version = "2.0", default-features = false }
+
+[workspace.lints.rust]
+missing_docs = "deny"
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+await_holding_lock = "deny"
+expect_used = "deny"
+let_underscore_future = "deny"
+let_underscore_must_use = "deny"
+panic = "deny"
+unwrap_used = "deny"
+
+[lib]
+name = "surveillance"
+path = "src/lib.rs"
+
+[features]
+default = []
+std = ["surveillance-core/std"]
+
+[dependencies]
+surveillance-core = { version = "0.1.0", path = "crates/surveillance-core", default-features = false }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

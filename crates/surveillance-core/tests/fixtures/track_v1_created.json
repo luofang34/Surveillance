@@ -1,0 +1,93 @@
+{
+  "schema_version": 1,
+  "delta": {
+    "kind": "created",
+    "data": {
+      "id": 42,
+      "key": { "namespace": "icao", "address": 11305708 },
+      "identities": {
+        "primary": { "namespace": "icao", "address": 11305708 },
+        "associated": [{ "namespace": "tisb_track_file", "address": 66 }]
+      },
+      "phase": "active",
+      "ownship_shadow": false,
+      "position": {
+        "value": { "latitude_deg": 40.639751, "longitude_deg": -73.778925 },
+        "observed_at_micros": 1500000,
+        "quality": { "nic": 8, "nac_p": 9, "sil": 2 },
+        "provenance": {
+          "link": { "link": "adsb1090" },
+          "namespace": "icao",
+          "source": { "id": 1, "transport": "usb" }
+        }
+      },
+      "pressure_altitude_ft": {
+        "value": 12500,
+        "observed_at_micros": 1500000,
+        "quality": {},
+        "provenance": {
+          "link": { "link": "adsb1090" },
+          "namespace": "icao",
+          "source": { "id": 1, "transport": "usb" }
+        }
+      },
+      "velocity": {
+        "value": {
+          "ground_speed_kt": 214.5,
+          "track_angle_deg_true": 87.25,
+          "vertical_rate_fpm": -640,
+          "vertical_rate_source": "barometric"
+        },
+        "observed_at_micros": 1500000,
+        "quality": { "nac_v": 2 },
+        "provenance": {
+          "link": { "link": "adsb1090" },
+          "namespace": "icao",
+          "source": { "id": 1, "transport": "usb" }
+        }
+      },
+      "callsign": {
+        "value": { "text": "DAL123", "kind": "callsign" },
+        "observed_at_micros": 1200000,
+        "quality": {},
+        "provenance": {
+          "link": { "link": "adsb1090" },
+          "namespace": "icao",
+          "source": { "id": 1, "transport": "usb" }
+        }
+      },
+      "squawk": {
+        "value": 3471,
+        "observed_at_micros": 1200000,
+        "quality": {},
+        "provenance": {
+          "link": { "link": "adsb1090" },
+          "namespace": "icao",
+          "source": { "id": 1, "transport": "usb" }
+        }
+      },
+      "air_ground": {
+        "value": "subsonic",
+        "observed_at_micros": 1500000,
+        "quality": {},
+        "provenance": {
+          "link": { "link": "adsb1090" },
+          "namespace": "icao",
+          "source": { "id": 1, "transport": "usb" }
+        }
+      },
+      "emergency": {
+        "value": "none",
+        "observed_at_micros": 1200000,
+        "quality": {},
+        "provenance": {
+          "link": { "link": "adsb1090" },
+          "namespace": "icao",
+          "source": { "id": 1, "transport": "usb" }
+        }
+      },
+      "created_at_micros": 1000000,
+      "last_observed_at_micros": 1500000
+    }
+  }
+}
