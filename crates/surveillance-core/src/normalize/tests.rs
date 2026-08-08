@@ -92,6 +92,10 @@ fn a_direct_airborne_position_normalizes_to_an_icao_key_and_a_cpr_frame() {
         observation.pressure_altitude_ft.is_some(),
         "the frame carries a barometric altitude"
     );
+    assert_eq!(
+        observation.quality.nic, None,
+        "a position message carries a NIC supplement bit, not a NIC category"
+    );
 }
 
 #[test]

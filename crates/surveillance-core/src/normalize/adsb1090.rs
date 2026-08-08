@@ -136,7 +136,11 @@ fn apply_squitter(
                 position.cpr_longitude,
             )));
             apply_altitude(observation, position.altitude);
-            observation.quality.nic = position.nic_supplement_b.map(u8::from);
+            // NIC is not carried by the position message: deriving it needs
+            // the type code together with the NIC supplement bits, and the
+            // supplement alone is a single bit, not the category. Reporting
+            // the supplement as the category would fabricate a quality value
+            // that outranks a genuine absence during fusion.
         }
         ExtendedSquitterMessage::SurfacePosition(position) => {
             observation.position = Some(PositionObservation::CprSurface(cpr_frame(
