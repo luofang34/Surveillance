@@ -8,9 +8,10 @@
 #![allow(clippy::expect_used, clippy::panic)]
 
 use surveillance::{
-    AddressNamespace, Band, CURRENT_TRACK_SCHEMA_VERSION, DeliveryPath, EngineConfig,
+    AddressNamespace, Band, CURRENT_TRACK_SCHEMA_VERSION, Callsign, DeliveryPath, EngineConfig,
     ObservationOrigin, ObservationTime, PositionObservation, SourceRef, SurveillanceEngine,
-    TrackDelta, TrackId, TrackKey, TrackRecord, TrackSnapshot, TrafficObservation, Wgs84Position,
+    TimeBasis, TrackDelta, TrackId, TrackKey, TrackRecord, TrackSnapshot, TrafficObservation,
+    Wgs84Position,
 };
 
 #[test]
@@ -111,4 +112,229 @@ fn a_non_radio_track_coasts_and_expires_on_the_callers_clock() {
     engine.advance_time(remove_after + 1, |delta| removed.push(delta.clone()));
     assert!(matches!(removed.as_slice(), [TrackDelta::Removed { .. }]));
     assert_eq!(engine.track_count(), 0);
+}
+
+/// An installed panel reports a track it fused itself, over an aircraft bus.
+/// Nothing about it resembles a radio, and the engine does not care.
+#[test]
+fn an_installed_panel_drives_the_engine_under_its_own_origin() {
+    let mut engine = SurveillanceEngine::new(EngineConfig::default());
+    let panel = SourceRef::new(2, 0, DeliveryPath::InstalledAvionics);
+    let key = TrackKey::new(AddressNamespace::Icao, 0x0040_621D);
+
+    let mut observation = TrafficObservation::new(
+        ObservationTime::mapped(1_000_000, 900_000, 10_000),
+        panel,
+        ObservationOrigin::PanelFused,
+        key,
+    );
+    observation.position = Some(PositionObservation::Decoded(Wgs84Position {
+        latitude_deg: 40.0,
+        longitude_deg: -74.0,
+    }));
+    engine
+        .ingest(observation, |_| {})
+        .expect("the engine accepts a panel observation");
+
+    let snapshot = engine
+        .snapshot(key)
+        .expect("the panel report became a track");
+    let position = snapshot.position.as_ref().expect("position applied");
+    assert_eq!(position.provenance.origin, ObservationOrigin::PanelFused);
+    assert_eq!(
+        position.provenance.source.delivery,
+        DeliveryPath::InstalledAvionics
+    );
+    assert_eq!(
+        position.time.observed_at_micros, 900_000,
+        "the panel's own measurement time survives into provenance"
+    );
+}
+
+/// A simulator is a delivery path like any other; the engine has no way to
+/// tell, and no reason to.
+#[test]
+fn a_simulated_source_is_tracked_like_any_other() {
+    let mut engine = SurveillanceEngine::new(EngineConfig::default());
+    let key = TrackKey::new(AddressNamespace::SelfAssigned, 0x0000_0001);
+    engine
+        .ingest(
+            TrafficObservation::new(
+                ObservationTime::local(1_000),
+                SourceRef::new(3, 0, DeliveryPath::Simulator),
+                ObservationOrigin::Replay,
+                key,
+            ),
+            |_| {},
+        )
+        .expect("the engine accepts a simulated observation");
+
+    assert_eq!(engine.track_count(), 1);
+}
+
+/// Liveness ages from measurement, not arrival. A provider reporting
+/// promptly about a stale moment must not hold a track Active on a position
+/// already past its coasting window.
+#[test]
+fn a_provider_with_honest_latency_coasts_on_measurement_time() {
+    let mut engine = SurveillanceEngine::new(EngineConfig::default());
+    let provider = SourceRef::new(4, 0, DeliveryPath::NetworkProvider);
+    let key = TrackKey::new(AddressNamespace::Icao, 0x00AC_82EC);
+    let latency = 30_000_000;
+    let coast_after = engine.config().freshness.coast_after_micros;
+
+    let mut coasted = false;
+    for step in 0..6_u64 {
+        let received_at = 100_000_000 + step * 5_000_000;
+        let mut observation = TrafficObservation::new(
+            ObservationTime::mapped(received_at, received_at - latency, 0),
+            provider,
+            ObservationOrigin::ProviderFused,
+            key,
+        );
+        observation.position = Some(PositionObservation::Decoded(Wgs84Position {
+            latitude_deg: 40.0 + step as f64 * 0.001,
+            longitude_deg: -74.0,
+        }));
+        engine.ingest(observation, |_| {}).expect("ingest succeeds");
+        engine.advance_time(received_at, |delta| {
+            if matches!(delta, TrackDelta::Coasting(_)) {
+                coasted = true;
+            }
+        });
+    }
+
+    assert!(
+        latency > coast_after,
+        "the scenario only means something when latency exceeds the coasting window"
+    );
+    assert!(
+        coasted,
+        "a track whose newest measurement is older than the coasting window must coast, \
+         however promptly the reports arrive"
+    );
+}
+
+/// A source that will not say when it measured cannot keep a track alive
+/// forever by reporting often.
+#[test]
+fn an_unknown_source_time_does_not_grant_indefinite_liveness() {
+    let mut engine = SurveillanceEngine::new(EngineConfig::default());
+    let key = TrackKey::new(AddressNamespace::Icao, 0x0040_621D);
+    let remove_after = engine.config().freshness.remove_after_micros;
+
+    engine
+        .ingest(
+            TrafficObservation::new(
+                ObservationTime::unknown_source_time(1_000),
+                SourceRef::new(5, 0, DeliveryPath::NetworkProvider),
+                ObservationOrigin::Unknown,
+                key,
+            ),
+            |_| {},
+        )
+        .expect("ingest succeeds");
+
+    let mut removed = false;
+    engine.advance_time(1_000 + remove_after + 1, |delta| {
+        if matches!(delta, TrackDelta::Removed { .. }) {
+            removed = true;
+        }
+    });
+    assert!(removed, "retention still applies to a timeless source");
+}
+
+/// The headline case the source-neutral model exists for: one aircraft seen
+/// three ways at once, with no source pretending to be something it is not,
+/// and the strongest evidence winning each field on its own merits.
+#[test]
+fn one_target_seen_through_a_radio_a_provider_and_a_panel() {
+    let mut engine = SurveillanceEngine::new(EngineConfig::default());
+    let key = TrackKey::new(AddressNamespace::Icao, 0x00AC_82EC);
+
+    let radio = SourceRef::new(1, 0, DeliveryPath::LocalReceiver);
+    let provider = SourceRef::new(2, 1, DeliveryPath::NetworkProvider);
+    let panel = SourceRef::new(3, 0, DeliveryPath::InstalledAvionics);
+
+    // The provider reports first, promptly, about a moment two seconds ago.
+    let mut from_provider = TrafficObservation::new(
+        ObservationTime::mapped(1_000_000, 998_000, 20_000),
+        provider,
+        ObservationOrigin::ProviderFused,
+        key,
+    );
+    from_provider.position = Some(PositionObservation::Decoded(Wgs84Position {
+        latitude_deg: 40.100,
+        longitude_deg: -74.0,
+    }));
+    from_provider.pressure_altitude_ft = Some(30_000);
+
+    // The panel contributes a callsign the radio has not heard.
+    let mut from_panel = TrafficObservation::new(
+        ObservationTime::mapped(1_100_000, 1_050_000, 5_000),
+        panel,
+        ObservationOrigin::PanelFused,
+        key,
+    );
+    from_panel.callsign = Some(Callsign::new("DAL123"));
+
+    // The radio hears the aircraft itself, most recently of the three.
+    let mut from_radio = TrafficObservation::new(
+        ObservationTime::local(1_200_000),
+        radio,
+        ObservationOrigin::AdsbDirect {
+            band: Band::Adsb1090,
+        },
+        key,
+    );
+    from_radio.position = Some(PositionObservation::Decoded(Wgs84Position {
+        latitude_deg: 40.101,
+        longitude_deg: -74.0,
+    }));
+
+    for observation in [from_provider, from_panel, from_radio] {
+        engine
+            .ingest(observation, |_| {})
+            .expect("every source reaches the same entry point");
+    }
+
+    assert_eq!(engine.track_count(), 1, "three sources, one aircraft");
+    let snapshot = engine.snapshot(key).expect("track exists");
+
+    let position = snapshot.position.as_ref().expect("position applied");
+    assert_eq!(
+        position.provenance.origin,
+        ObservationOrigin::AdsbDirect {
+            band: Band::Adsb1090
+        },
+        "the target's own transmission wins the position"
+    );
+    assert_eq!(
+        position.provenance.source.delivery,
+        DeliveryPath::LocalReceiver
+    );
+
+    let callsign = snapshot.callsign.as_ref().expect("callsign applied");
+    assert_eq!(callsign.value.text, "DAL123");
+    assert_eq!(
+        callsign.provenance.origin,
+        ObservationOrigin::PanelFused,
+        "a field only the panel supplied stays attributed to the panel"
+    );
+
+    let altitude = snapshot
+        .pressure_altitude_ft
+        .as_ref()
+        .expect("altitude applied");
+    assert_eq!(
+        altitude.provenance.source.epoch, 1,
+        "the provider's incarnation survives into provenance"
+    );
+    assert_eq!(
+        altitude.time.basis,
+        TimeBasis::Mapped {
+            uncertainty_micros: 20_000
+        },
+        "and so does how its time was established"
+    );
 }
