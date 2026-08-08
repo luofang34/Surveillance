@@ -358,6 +358,15 @@ composition-layer service that combines Surveillance traffic output with
 weather, ownship navigation, and time/status inputs, and owns CRC, framing,
 escaping, scheduling, transport, and backpressure.
 
+### Map features
+
+The map-feature boundary, the reasoning behind it, and the preview plan are
+specified in [map features and the preview boundary](map-features.md). In
+short: the adapter owns a renderer-neutral feature vocabulary and depends on
+no renderer, GeoJSON is the interchange format rather than the API, and the
+binding to an actual map lives in an application target outside the Cargo
+workspace.
+
 ### GeoLibre
 
 `surveillance-geolibre` converts `TrackDelta` values into aircraft feature
