@@ -4,8 +4,10 @@
 //! aircraft tracks, whatever produced them: a local radio, an installed
 //! panel, a network provider, a replay, or a simulator. Translating one radio
 //! reception into canonical terms belongs to a link adapter, so no decoder
-//! vocabulary reaches a consumer of the engine. It owns state that spans receptions — track identity
-//! across address namespaces, global CPR reconstruction, per-field freshness
+//! vocabulary reaches a consumer of the engine.
+//!
+//! It owns state that spans receptions — track identity across address
+//! namespaces, global CPR reconstruction, per-field freshness
 //! and provenance, cross-link fusion, coasting, and expiration — and emits
 //! [`TrackDelta`] and [`TrackSnapshot`] values through a versioned schema.
 //!

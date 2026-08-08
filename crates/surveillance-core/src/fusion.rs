@@ -8,17 +8,27 @@
 //!    one that is both established and still fresh. A provider that will not
 //!    say when it measured has said nothing about age, and must not be read
 //!    as if it had measured on arrival.
-//! 2. A strictly older observation never replaces a newer applied value, so a
-//!    delayed report — a late network message especially — cannot undo a
-//!    current one.
-//! 3. A value whose age exceeds its freshness window is stale, and any
+//! 2. The converse also holds: an established time is never blocked by an
+//!    unestablished one. An arrival stamp is not a measurement time, so it
+//!    cannot act as an age floor — otherwise a source reporting faster than a
+//!    trustworthy source's mapping latency would hold a field against it
+//!    forever, and which value survived would depend on which arrived first.
+//! 3. Between two comparably established times, a strictly older observation
+//!    never replaces a newer applied value, so a delayed report — a late
+//!    network message especially — cannot undo a current one.
+//! 4. A value whose age exceeds its freshness window is stale, and any
 //!    candidate replaces it. A fresh ground-derived report therefore beats a
 //!    stale direct one.
-//! 4. Between fresh values, the higher [`origin_rank`] wins: what produced
+//! 5. Between fresh values, the higher [`origin_rank`] wins: what produced
 //!    the observation decides, never how it was delivered.
-//! 5. At equal rank, the newer observation wins; two observations of the same
+//! 6. At equal rank, the newer observation wins; two observations of the same
 //!    instant are resolved by quality, where better means no indicator is
 //!    worse and at least one is better.
+//!
+//! Declared quality deliberately does not override origin. A source's own
+//! integrity indicators are exactly what a poor source would overstate, so
+//! they separate peers rather than promote a weaker origin above a stronger
+//! one.
 //!
 //! Age is always the pessimistic end of any timing uncertainty, so a loosely
 //! mapped provider time is treated as older than a tightly mapped one rather
@@ -120,11 +130,26 @@ fn accepts_replacement<T>(
         .received_at_micros
         .max(current.time.received_at_micros);
     let current_is_fresh = current.is_fresh(now_micros, fresh_window_micros);
+    let candidate_established = candidate.time.is_established();
+    let current_established = current.time.is_established();
 
-    if !candidate.time.is_established() && current.time.is_established() && current_is_fresh {
+    if !candidate_established && current_established && current_is_fresh {
         return false;
     }
 
+    // An established time is better evidence than an unestablished one, so it
+    // is never blocked by it. Without this the ingress stamp of a source that
+    // would not say when it measured acts as an age floor, and a source
+    // reporting faster than a trustworthy one's mapping latency holds the
+    // field against it indefinitely — the exact inversion this policy exists
+    // to prevent.
+    if candidate_established && !current_established {
+        return true;
+    }
+
+    // Comparing measurement times is only meaningful when both were
+    // established the same way; otherwise one of them is an arrival stamp
+    // wearing a measurement's name.
     if candidate.observed_at_micros() < current.observed_at_micros() {
         return false;
     }

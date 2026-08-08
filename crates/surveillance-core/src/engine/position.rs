@@ -15,7 +15,7 @@ use crate::cpr::{
     local, validate_range,
 };
 use crate::engine::ingest::timed;
-use crate::freshness::{FreshnessPolicy, TimedField};
+use crate::freshness::FreshnessPolicy;
 use crate::fusion::{FieldUpdate, fuse};
 use crate::observation::{PositionObservation, TrafficObservation, Wgs84Position};
 use crate::track::TrackState;
@@ -75,7 +75,7 @@ fn decode_airborne(
     frame: CprFrame,
     context: PositionContext<'_>,
 ) -> Result<Wgs84Position, CprDecodeError> {
-    state.cpr.record(frame, observation.time.received_at_micros);
+    state.cpr.record(frame, observation.time.observed_at_micros);
     match state.cpr.decode_global(context.cpr) {
         Err(CprDecodeError::PairIncomplete) => {
             let reference = established_position(state, observation, context)
@@ -126,10 +126,13 @@ fn validate_against_previous(
     let Some(previous) = state.snapshot.position.as_ref() else {
         return Ok(());
     };
-    let elapsed_micros = elapsed_since(previous, observation.time.received_at_micros);
+    // Travel is bounded by the interval between the two measurements. Using
+    // arrival here, or the pessimistic age that widens with uncertainty,
+    // would inflate the budget and admit exactly the implausible jumps the
+    // gate exists to refuse.
+    let elapsed_micros = observation
+        .time
+        .observed_at_micros
+        .saturating_sub(previous.observed_at_micros());
     validate_range(candidate, previous.value, elapsed_micros, context.cpr)
-}
-
-fn elapsed_since<T>(previous: &TimedField<T>, now_micros: u64) -> u64 {
-    previous.age_micros(now_micros)
 }

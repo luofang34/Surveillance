@@ -62,7 +62,12 @@ impl ObservationOrigin {
         match self {
             Self::AdsbDirect { band } | Self::AdsR { band } | Self::Tisb { band } => Some(*band),
             Self::ModeSReply => Some(Band::Adsb1090),
-            _ => None,
+            Self::Radar
+            | Self::Mlat
+            | Self::ProviderFused
+            | Self::PanelFused
+            | Self::Replay
+            | Self::Unknown => None,
         }
     }
 

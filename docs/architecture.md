@@ -136,9 +136,9 @@ engine distinguishes them only by the provenance they declare, never by type.
 - Non-traffic receptions (FIS-B, ground uplinks) never reach the engine and
   must leave its state untouched — the projection returns `None` and the
   caller skips ingestion.
-- `TrafficLink` records the originating link class (direct 1090 ES, Mode S
-  reply, direct UAT, ADS-R, TIS-B) with its band. It is the fusion-precedence
-  axis and part of every field's provenance. On 978 MHz the qualifier does
+- `ObservationOrigin` records what produced the observation, carrying a band
+  only where a radio received it. It is the fusion-precedence axis and part of
+  every field's provenance. On 978 MHz the qualifier does
   not separate an ADS-R rebroadcast from a TIS-B report, so both normalize to
   a TIS-B link: that never claims a report came straight from the target when
   it did not.
@@ -286,7 +286,7 @@ able to claim the future.
 ## Field fusion and freshness
 
 Every fused field is a `TimedField<T>`: value, observation time, quality,
-and provenance (link, namespace, receiver source). Rules:
+and provenance (origin, namespace, source reference). Rules:
 
 - Each field ages independently. A callsign update cannot refresh an old
   position; freshness windows are per-field policy in `FreshnessPolicy`.
@@ -382,13 +382,13 @@ core contract, not an optional feature:
   removing or renaming fields or variants, changing units or meaning, or
   changing Serde tagging always requires a version bump.
 - Every exported field keeps provenance a detail view can display:
-  originating link and band, address namespace, `ReceiverSource`, and the
+  originating link and band, address namespace, `SourceRef`, and the
   observation's monotonic time. A snapshot may additionally reference the
   receptions that supplied its current position, altitude, velocity, and
   identity, so an application can show the underlying frames from its own
   recording without Surveillance storing them.
-- All exported times are runtime-monotonic microseconds, consistent with
-  `ReceptionEvent.received_at_micros`. A service exporting deltas off the
+- All exported times are runtime-monotonic microseconds in the one
+  caller-supplied domain. A service exporting deltas off the
   runtime attaches one monotonic-origin-to-UTC correspondence
   (`TimeCorrespondence`) per stream at that boundary. The engine itself
   never touches UTC.

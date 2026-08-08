@@ -229,10 +229,9 @@ than fabricating missing surveillance values.
 `TrackDelta` and `TrackSnapshot` cross process and machine boundaries — native
 apps, a web viewer, recorders — so their serialization is part of the core
 contract, not an optional feature. Use a versioned envelope with private
-fields,
-validation before access, and golden round-trip fixtures with bit-exact float
-values. Additive growth and version-bump rules are documented alongside the
-schema.
+fields, validation before access, and golden round-trip fixtures with
+bit-exact float values. Additive growth and version-bump rules are documented
+alongside the schema.
 
 Every exported field keeps provenance that a detail view can display:
 originating link and band, address qualifier, `ReceiverSource`, and the

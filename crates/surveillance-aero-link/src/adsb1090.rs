@@ -5,8 +5,9 @@ use aero_link::{
     ExtendedSquitterMessage, IcaoAddressStatus, ModeSMessage, TrafficProjection,
 };
 use surveillance_core::{
-    AddressNamespace, Band, Callsign, CprFormat, CprFrame, ObservationOrigin, ObservationTime,
-    PositionObservation, Squawk, TrackKey, TrafficObservation, VelocityObservation,
+    AddressNamespace, Band, Callsign, CprFormat, CprFrame, HeadingReference, ObservationOrigin,
+    ObservationTime, PositionObservation, Squawk, TrackKey, TrafficObservation,
+    VelocityObservation,
 };
 
 use crate::NormalizeError;
@@ -202,7 +203,15 @@ fn apply_velocity(observation: &mut TrafficObservation, velocity: &aero_link::Ai
     fused.track_angle_deg_true = track_angle_deg_true;
     fused.airspeed_kt = velocity.airspeed_knots.map(f64::from);
     fused.airspeed_kind = velocity.airspeed_kind.map(vocabulary::airspeed_kind);
-    fused.heading_deg = velocity.heading_degrees.map(f64::from);
+    // Subtypes 1 and 2 report a ground track; 3 and 4 report a magnetic
+    // heading. Storing the former as a heading would label a track angle as
+    // something a consumer steers by, and the track angle is already derived
+    // from the velocity components above.
+    let degrees = velocity.heading_degrees.map(f64::from);
+    if matches!(velocity.subtype, 3 | 4) {
+        fused.heading_deg = degrees;
+        fused.heading_reference = Some(HeadingReference::MagneticNorth);
+    }
     fused.vertical_rate_fpm = velocity.vertical_rate_fpm.map(i32::from);
     fused.vertical_rate_source = velocity
         .vertical_rate_source

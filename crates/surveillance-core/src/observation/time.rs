@@ -53,13 +53,21 @@ impl TimeBasis {
     pub fn uncertainty_micros(self) -> u64 {
         match self {
             Self::Mapped { uncertainty_micros } => uncertainty_micros,
-            _ => 0,
+            Self::LocalIngress | Self::UnknownSourceTime => 0,
         }
     }
 }
 
 /// When one observation was made, in the local monotonic domain.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+///
+/// Nothing can be measured after it is received, so the invariant
+/// `observed_at_micros <= received_at_micros` holds however the value was
+/// produced — including when it was decoded from a record. A source clock
+/// running ahead would otherwise deserialize into a value that is
+/// permanently fresh and outranks live local data, and the replay path is
+/// exactly where recorded mapped times arrive.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct ObservationTime {
     /// Monotonic time the observation entered this runtime.
     ///
@@ -70,6 +78,30 @@ pub struct ObservationTime {
     pub observed_at_micros: u64,
     /// How `observed_at_micros` was established.
     pub basis: TimeBasis,
+}
+
+/// Wire form of [`ObservationTime`], clamped on the way in so a decoded
+/// value cannot carry a measurement time from after its own arrival.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename = "ObservationTime")]
+struct WireObservationTime {
+    received_at_micros: u64,
+    observed_at_micros: u64,
+    basis: TimeBasis,
+}
+
+impl<'de> Deserialize<'de> for ObservationTime {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let wire = WireObservationTime::deserialize(deserializer)?;
+        Ok(Self {
+            received_at_micros: wire.received_at_micros,
+            observed_at_micros: wire.observed_at_micros.min(wire.received_at_micros),
+            basis: wire.basis,
+        })
+    }
 }
 
 impl ObservationTime {

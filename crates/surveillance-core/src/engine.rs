@@ -106,8 +106,13 @@ impl SurveillanceEngine {
         changed |= position_update.is_meaningful();
 
         state.mark_identity_seen(observation.key, observation.time.received_at_micros);
-        if observation.time.received_at_micros > state.snapshot.last_observed_at_micros {
-            state.snapshot.last_observed_at_micros = observation.time.received_at_micros;
+        // Liveness ages from when the target was observed, not from when the
+        // report reached us. A provider with honest latency would otherwise
+        // keep a track Active on a position already older than its coasting
+        // window, which is exactly what the time model exists to prevent.
+        let observed_at = observation.time.observed_at_micros;
+        if observed_at > state.snapshot.last_observed_at_micros {
+            state.snapshot.last_observed_at_micros = observed_at;
         }
         if state.snapshot.phase == TrackPhase::Coasting {
             state.snapshot.phase = TrackPhase::Active;
