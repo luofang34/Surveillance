@@ -14,6 +14,22 @@ The workflow in `.github/workflows/ci.yml` invokes those scripts and adds
 only the things a hosted runner needs: checking out the dependency,
 installing targets, and caching.
 
+## Feature passes
+
+`scripts/ci.sh` runs clippy and the tests two times.
+
+The first pass uses the default features. It builds the portable library that
+a consumer gets. It is also the only pass that compiles the `no_std` half of
+each conditional.
+
+The second pass adds `--all-features`. It compiles the host-only code, for
+example the recorded-stream reader in `surveillance-aero-link`.
+
+Keep the second pass. A feature gate removes a module from a build, and Cargo
+does not fail because of that. A test in a removed module then reports
+success, because no compiler read it. A gated test is only green when the
+second pass runs it.
+
 ## The private dependency
 
 `surveillance-core` depends on `aero-link` through a path dependency

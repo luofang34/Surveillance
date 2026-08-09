@@ -27,6 +27,7 @@ use surveillance_core::{InvalidSquawk, TrafficObservation};
 use thiserror::Error;
 
 mod adsb1090;
+pub mod replay;
 mod source;
 mod uat;
 mod vocabulary;

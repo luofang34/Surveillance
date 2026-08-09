@@ -485,6 +485,35 @@ Determinism is therefore asserted at the stream boundary: the same recorded
 inputs, replayed through the same adapter, must produce a byte-identical
 delta stream.
 
+## How the radio reader reads a stream
+
+`surveillance-aero-link::replay` reads a recorded radio stream. It needs an
+I/O trait and a JSON decoder, so the `std` feature gates it and a portable
+build links neither.
+
+Each line holds one `ReceptionRecord`. The reader examines the declared
+schema version first, then decodes the event. This order is the reason the
+envelope exists: a record from a version this build does not support is
+refused, and its payload is never read as a shape it may no longer have. A
+bare event carries no version, so the reader refuses it as version zero
+instead of assuming the current schema.
+
+The reader separates a stream fault from a reception fault:
+
+- A line that does not decode, or a record from an unsupported schema, makes
+  the remainder of the recording untrustworthy. The reader stops and names
+  the line.
+- One traffic reception that names no target the adapter can normalize
+  leaves the stream intact. The reader counts it and continues.
+- A reception that carries no traffic is neither fault. Almost half of all
+  978 MHz receptions are ground uplinks, which carry weather and notices.
+  The reader counts them as skipped and reports no error, because a caller
+  must not have to tell weather apart from a failure.
+
+The reader reports four counts: receptions consumed, observations produced,
+receptions skipped as not traffic, and receptions refused. The first count is
+always the sum of the other three.
+
 ## Testing strategy
 
 - Fixtures are captured `ReceptionEvent` values (aero-link's versioned
