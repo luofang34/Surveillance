@@ -2,7 +2,7 @@
 //!
 //! Surveillance converts canonical traffic observations into coherent
 //! aircraft tracks. The engine is synchronous, single-writer, and
-//! runtime-neutral; it emits [`core::TrackDelta`] and [`core::TrackSnapshot`]
+//! runtime-neutral; it emits [`core::TrackDelta`] and [`core::TrackSnapshotHandle`]
 //! values that cross process and machine boundaries through a versioned
 //! schema.
 //!

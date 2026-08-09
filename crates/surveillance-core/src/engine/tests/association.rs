@@ -4,7 +4,7 @@ use alloc::vec::Vec;
 
 use crate::source::Band;
 
-use crate::engine::tests::{ICAO, engine, ingest, observation};
+use crate::engine::tests::{ICAO, PRODUCER, engine, ingest, observation};
 use crate::engine::{EngineConfig, SurveillanceEngine};
 use crate::observation::{
     Callsign, ObservationOrigin, PositionObservation, TrafficObservation, VelocityObservation,
@@ -373,7 +373,9 @@ fn a_merged_track_demotes_when_its_cooperative_source_stops() {
                 |delta| deltas.push(delta.clone()),
             )
             .expect("ingest succeeds");
-        engine.advance_time(at, |delta| deltas.push(delta.clone()));
+        engine
+            .advance_time(at, |delta| deltas.push(delta.clone()))
+            .expect("time advance succeeds");
     }
 
     let snapshot = engine.snapshot_by_id(id).expect("survivor still exists");
@@ -393,7 +395,7 @@ fn a_merged_track_demotes_when_its_cooperative_source_stops() {
 #[test]
 fn a_merge_is_independent_of_which_side_reports_first() {
     fn merged_survivor(icao_first: bool) -> (usize, TrackId) {
-        let mut engine = SurveillanceEngine::new(EngineConfig::default());
+        let mut engine = SurveillanceEngine::new(EngineConfig::default(), PRODUCER);
         let (first, second) = if icao_first {
             (ICAO, TRACK_FILE)
         } else {

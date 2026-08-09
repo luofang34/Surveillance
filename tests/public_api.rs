@@ -9,18 +9,20 @@
 
 use surveillance::{
     AddressNamespace, Band, CURRENT_TRACK_SCHEMA_VERSION, Callsign, DeliveryPath, EngineConfig,
-    FieldQuality, ObservationOrigin, ObservationTime, PositionObservation, SourceRef,
-    SurveillanceEngine, TimeBasis, TrackDelta, TrackId, TrackKey, TrackRecord, TrackSnapshot,
-    TrafficObservation, Wgs84Position,
+    FieldQuality, ObservationOrigin, ObservationTime, PositionObservation, ProducerInstanceId,
+    SnapshotRevision, SourceRef, SurveillanceEngine, TimeBasis, TrackDelta, TrackId, TrackKey,
+    TrackRecord, TrackSnapshot, TrackSnapshotHandle, TrafficObservation, Wgs84Position,
 };
+
+const PRODUCER: ProducerInstanceId = ProducerInstanceId::new(1);
 
 #[test]
 fn the_umbrella_exports_the_schema_surface() {
     let key = TrackKey::new(AddressNamespace::Icao, 0x00AB_CDEF);
-    let record = TrackRecord::new(TrackDelta::Created(TrackSnapshot::new(
-        TrackId::new(1),
-        key,
-        0,
+    let record = TrackRecord::new(TrackDelta::Created(TrackSnapshotHandle::new(
+        PRODUCER,
+        SnapshotRevision::new(1),
+        TrackSnapshot::new(TrackId::new(1), key, 0),
     )));
     assert_eq!(record.schema_version(), CURRENT_TRACK_SCHEMA_VERSION);
 
@@ -39,7 +41,7 @@ fn the_module_style_path_stays_available() {
 /// the same.
 #[test]
 fn a_non_radio_source_can_drive_the_engine() {
-    let mut engine = SurveillanceEngine::new(EngineConfig::default());
+    let mut engine = SurveillanceEngine::new(EngineConfig::default(), PRODUCER);
     let provider = SourceRef::new(9, 0, DeliveryPath::NetworkProvider);
     let key = TrackKey::new(AddressNamespace::Icao, 0x00AC_82EC);
     let mut deltas = Vec::new();
@@ -85,7 +87,7 @@ fn a_non_radio_source_can_drive_the_engine() {
 /// observations, so a non-radio source coasts and expires like any other.
 #[test]
 fn a_non_radio_track_coasts_and_expires_on_the_callers_clock() {
-    let mut engine = SurveillanceEngine::new(EngineConfig::default());
+    let mut engine = SurveillanceEngine::new(EngineConfig::default(), PRODUCER);
     let key = TrackKey::new(AddressNamespace::Icao, 0x0040_621D);
     engine
         .ingest(
@@ -105,11 +107,15 @@ fn a_non_radio_track_coasts_and_expires_on_the_callers_clock() {
     let remove_after = engine.config().freshness.remove_after_micros;
 
     let mut coasting = Vec::new();
-    engine.advance_time(coast_after + 1, |delta| coasting.push(delta.clone()));
+    engine
+        .advance_time(coast_after + 1, |delta| coasting.push(delta.clone()))
+        .expect("time advance succeeds");
     assert!(matches!(coasting.as_slice(), [TrackDelta::Coasting(_)]));
 
     let mut removed = Vec::new();
-    engine.advance_time(remove_after + 1, |delta| removed.push(delta.clone()));
+    engine
+        .advance_time(remove_after + 1, |delta| removed.push(delta.clone()))
+        .expect("time advance succeeds");
     assert!(matches!(removed.as_slice(), [TrackDelta::Removed { .. }]));
     assert_eq!(engine.track_count(), 0);
 }
@@ -118,7 +124,7 @@ fn a_non_radio_track_coasts_and_expires_on_the_callers_clock() {
 /// Nothing about it resembles a radio, and the engine does not care.
 #[test]
 fn an_installed_panel_drives_the_engine_under_its_own_origin() {
-    let mut engine = SurveillanceEngine::new(EngineConfig::default());
+    let mut engine = SurveillanceEngine::new(EngineConfig::default(), PRODUCER);
     let panel = SourceRef::new(2, 0, DeliveryPath::InstalledAvionics);
     let key = TrackKey::new(AddressNamespace::Icao, 0x0040_621D);
 
@@ -155,7 +161,7 @@ fn an_installed_panel_drives_the_engine_under_its_own_origin() {
 /// tell, and no reason to.
 #[test]
 fn a_simulated_source_is_tracked_like_any_other() {
-    let mut engine = SurveillanceEngine::new(EngineConfig::default());
+    let mut engine = SurveillanceEngine::new(EngineConfig::default(), PRODUCER);
     let key = TrackKey::new(AddressNamespace::SelfAssigned, 0x0000_0001);
     let simulator = SourceRef::new(3, 0, DeliveryPath::Simulator);
     let mut observation = TrafficObservation::new(
@@ -173,12 +179,8 @@ fn a_simulated_source_is_tracked_like_any_other() {
         .expect("the engine accepts a simulated observation");
 
     assert_eq!(engine.track_count(), 1);
-    let position = engine
-        .snapshot(key)
-        .expect("track exists")
-        .position
-        .as_ref()
-        .expect("position applied");
+    let snapshot = engine.snapshot(key).expect("track exists");
+    let position = snapshot.position.as_ref().expect("position applied");
     assert_eq!(position.provenance.source, simulator);
     assert_eq!(position.provenance.origin, ObservationOrigin::Replay);
 }
@@ -188,7 +190,7 @@ fn a_simulated_source_is_tracked_like_any_other() {
 /// already past its coasting window.
 #[test]
 fn a_provider_with_honest_latency_coasts_on_measurement_time() {
-    let mut engine = SurveillanceEngine::new(EngineConfig::default());
+    let mut engine = SurveillanceEngine::new(EngineConfig::default(), PRODUCER);
     let provider = SourceRef::new(4, 0, DeliveryPath::NetworkProvider);
     let key = TrackKey::new(AddressNamespace::Icao, 0x00AC_82EC);
     let latency = 30_000_000;
@@ -208,11 +210,13 @@ fn a_provider_with_honest_latency_coasts_on_measurement_time() {
             longitude_deg: -74.0,
         }));
         engine.ingest(observation, |_| {}).expect("ingest succeeds");
-        engine.advance_time(received_at, |delta| {
-            if matches!(delta, TrackDelta::Coasting(_)) {
-                coasted = true;
-            }
-        });
+        engine
+            .advance_time(received_at, |delta| {
+                if matches!(delta, TrackDelta::Coasting(_)) {
+                    coasted = true;
+                }
+            })
+            .expect("time advance succeeds");
     }
 
     assert!(
@@ -232,7 +236,7 @@ fn a_provider_with_honest_latency_coasts_on_measurement_time() {
 /// and one this test deliberately does not answer.
 #[test]
 fn an_unknown_source_time_does_not_grant_indefinite_liveness() {
-    let mut engine = SurveillanceEngine::new(EngineConfig::default());
+    let mut engine = SurveillanceEngine::new(EngineConfig::default(), PRODUCER);
     let key = TrackKey::new(AddressNamespace::Icao, 0x0040_621D);
     let remove_after = engine.config().freshness.remove_after_micros;
 
@@ -249,11 +253,13 @@ fn an_unknown_source_time_does_not_grant_indefinite_liveness() {
         .expect("ingest succeeds");
 
     let mut removed = false;
-    engine.advance_time(1_000 + remove_after + 1, |delta| {
-        if matches!(delta, TrackDelta::Removed { .. }) {
-            removed = true;
-        }
-    });
+    engine
+        .advance_time(1_000 + remove_after + 1, |delta| {
+            if matches!(delta, TrackDelta::Removed { .. }) {
+                removed = true;
+            }
+        })
+        .expect("time advance succeeds");
     assert!(removed, "retention still applies to a timeless source");
 }
 
@@ -316,7 +322,7 @@ fn three_sources(key: TrackKey) -> [TrafficObservation; 3] {
 
 #[test]
 fn one_target_seen_through_a_radio_a_provider_and_a_panel() {
-    let mut engine = SurveillanceEngine::new(EngineConfig::default());
+    let mut engine = SurveillanceEngine::new(EngineConfig::default(), PRODUCER);
     let key = TrackKey::new(AddressNamespace::Icao, 0x00AC_82EC);
 
     for observation in three_sources(key) {

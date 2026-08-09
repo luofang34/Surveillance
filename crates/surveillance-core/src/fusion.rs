@@ -83,6 +83,12 @@ pub enum FieldUpdate {
 }
 
 impl FieldUpdate {
+    /// Whether the candidate changed value, time, quality, or provenance.
+    #[must_use]
+    pub(crate) fn was_applied(self) -> bool {
+        !matches!(self, Self::Rejected)
+    }
+
     /// Whether the field's value differs from what a consumer last saw.
     #[must_use]
     pub fn is_meaningful(self) -> bool {

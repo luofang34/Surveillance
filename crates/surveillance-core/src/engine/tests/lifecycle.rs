@@ -2,7 +2,7 @@
 
 use alloc::vec::Vec;
 
-use crate::engine::tests::{ICAO, OTHER_ICAO, advance, engine, ingest, observation};
+use crate::engine::tests::{ICAO, OTHER_ICAO, PRODUCER, advance, engine, ingest, observation};
 use crate::engine::{EngineConfig, SurveillanceEngine};
 use crate::freshness::FreshnessPolicy;
 use crate::observation::ObservationOrigin;
@@ -187,14 +187,17 @@ fn time_running_backwards_transitions_nothing() {
 
 #[test]
 fn each_field_ages_on_its_own_window() {
-    let mut engine = SurveillanceEngine::new(EngineConfig {
-        freshness: FreshnessPolicy {
-            position_fresh_micros: 1_000,
-            identity_fresh_micros: 100_000,
-            ..FreshnessPolicy::default()
+    let mut engine = SurveillanceEngine::new(
+        EngineConfig {
+            freshness: FreshnessPolicy {
+                position_fresh_micros: 1_000,
+                identity_fresh_micros: 100_000,
+                ..FreshnessPolicy::default()
+            },
+            ..EngineConfig::default()
         },
-        ..EngineConfig::default()
-    });
+        PRODUCER,
+    );
 
     let mut positioned = observation(
         0,
@@ -293,7 +296,9 @@ fn an_identical_replay_produces_an_identical_delta_stream() {
                 .expect("ingest succeeds");
         }
         for now in [20_000_000, 100_000_000] {
-            engine.advance_time(now, |delta| deltas.push(delta.clone()));
+            engine
+                .advance_time(now, |delta| deltas.push(delta.clone()))
+                .expect("time advance succeeds");
         }
         deltas
     }
@@ -326,7 +331,9 @@ fn ownship_identities_label_without_suppressing() {
     );
 
     let mut deltas = Vec::new();
-    engine.set_ownship_identities(&[ICAO], |delta| deltas.push(delta.clone()));
+    engine
+        .set_ownship_identities(&[ICAO], |delta| deltas.push(delta.clone()))
+        .expect("ownship update succeeds");
 
     assert_eq!(deltas.len(), 1, "only the matching track changes");
     assert!(
@@ -371,10 +378,14 @@ fn replacing_the_ownship_set_relabels_in_both_directions() {
             },
         ),
     );
-    engine.set_ownship_identities(&[ICAO], |_| {});
+    engine
+        .set_ownship_identities(&[ICAO], |_| {})
+        .expect("ownship update succeeds");
 
     let mut deltas = Vec::new();
-    engine.set_ownship_identities(&[OTHER_ICAO], |delta| deltas.push(delta.clone()));
+    engine
+        .set_ownship_identities(&[OTHER_ICAO], |delta| deltas.push(delta.clone()))
+        .expect("ownship update succeeds");
 
     assert_eq!(deltas.len(), 2, "one track is labeled and one un-labeled");
     assert!(!engine.snapshot(ICAO).expect("track exists").ownship_shadow);
@@ -386,7 +397,9 @@ fn replacing_the_ownship_set_relabels_in_both_directions() {
     );
 
     let mut cleared = Vec::new();
-    engine.set_ownship_identities(&[], |delta| cleared.push(delta.clone()));
+    engine
+        .set_ownship_identities(&[], |delta| cleared.push(delta.clone()))
+        .expect("ownship update succeeds");
     assert_eq!(cleared.len(), 1);
     assert!(
         engine
@@ -400,7 +413,9 @@ fn replacing_the_ownship_set_relabels_in_both_directions() {
 #[test]
 fn a_track_acquired_after_the_ownship_set_is_labeled_on_creation() {
     let mut engine = engine();
-    engine.set_ownship_identities(&[ICAO], |_| {});
+    engine
+        .set_ownship_identities(&[ICAO], |_| {})
+        .expect("ownship update succeeds");
 
     let deltas = ingest(
         &mut engine,
@@ -434,7 +449,9 @@ fn an_unrelated_ownship_set_leaves_every_track_unlabeled() {
 
     let stranger = TrackKey::new(AddressNamespace::SelfAssigned, 0x0000_0001);
     let mut deltas = Vec::new();
-    engine.set_ownship_identities(&[stranger], |delta| deltas.push(delta.clone()));
+    engine
+        .set_ownship_identities(&[stranger], |delta| deltas.push(delta.clone()))
+        .expect("ownship update succeeds");
 
     assert!(deltas.is_empty());
     assert!(!engine.snapshot(ICAO).expect("track exists").ownship_shadow);

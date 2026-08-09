@@ -10,6 +10,7 @@
 use alloc::collections::BTreeMap;
 
 use crate::association::namespace_rank;
+use crate::engine::publication::{SnapshotPublicationError, SnapshotPublisher};
 use crate::freshness::FreshnessPolicy;
 use crate::fusion::fuse;
 use crate::track::{
@@ -39,14 +40,23 @@ pub(crate) fn merge(
     survivor: TrackId,
     absorbed: TrackId,
     freshness: &FreshnessPolicy,
+    publisher: &SnapshotPublisher,
     on_delta: &mut impl FnMut(&TrackDelta),
-) {
-    let Some(absorbed_state) = tracks.remove(&absorbed) else {
-        return;
+) -> Result<(), SnapshotPublicationError> {
+    let (Some(absorbed_state), Some(survivor_state)) =
+        (tracks.get(&absorbed), tracks.get(&survivor))
+    else {
+        return Ok(());
+    };
+    publisher.ensure_capacity(absorbed_state, 1)?;
+    publisher.ensure_capacity(survivor_state, 1)?;
+
+    let Some(mut absorbed_state) = tracks.remove(&absorbed) else {
+        return Ok(());
     };
     let Some(survivor_state) = tracks.get_mut(&survivor) else {
         tracks.insert(absorbed, absorbed_state);
-        return;
+        return Ok(());
     };
 
     adopt_identities(&mut survivor_state.snapshot, &absorbed_state.snapshot);
@@ -78,13 +88,14 @@ pub(crate) fn merge(
         keys.insert(key, survivor);
     }
 
-    let removed = TrackDelta::Removed {
-        id: absorbed,
-        key: absorbed_state.snapshot.key,
-        reason: RemovalReason::Merged { into: survivor },
-    };
+    let removed = publisher.removal(
+        &mut absorbed_state,
+        RemovalReason::Merged { into: survivor },
+    )?;
     on_delta(&removed);
-    on_delta(&TrackDelta::Updated(survivor_state.snapshot.clone()));
+    let updated = TrackDelta::Updated(publisher.snapshot(survivor_state)?);
+    on_delta(&updated);
+    Ok(())
 }
 
 /// Take on every identity of the absorbed track and re-key to the most

@@ -1,0 +1,211 @@
+{
+  "schema_version": 3,
+  "delta": {
+    "kind": "created",
+    "data": {
+      "producer_instance_id": 11,
+      "snapshot_revision": 29,
+      "snapshot": {
+        "id": 42,
+        "key": {
+          "namespace": "icao",
+          "address": 11305708
+        },
+        "identities": {
+          "primary": {
+            "namespace": "icao",
+            "address": 11305708
+          },
+          "associated": [
+            {
+              "namespace": "tisb_track_file",
+              "address": 66
+            }
+          ]
+        },
+        "phase": "active",
+        "ownship_shadow": false,
+        "position": {
+          "value": {
+            "latitude_deg": 40.639751,
+            "longitude_deg": -73.778925
+          },
+          "time": {
+            "received_at_micros": 1500000,
+            "observed_at_micros": 1500000,
+            "basis": {
+              "kind": "local_ingress"
+            }
+          },
+          "quality": {
+            "nic": 8,
+            "nac_p": 9,
+            "sil": 2
+          },
+          "provenance": {
+            "origin": {
+              "kind": "adsb_direct",
+              "band": "adsb1090"
+            },
+            "namespace": "icao",
+            "source": {
+              "id": 1,
+              "epoch": 0,
+              "delivery": "local_receiver"
+            }
+          }
+        },
+        "pressure_altitude_ft": {
+          "value": 12500,
+          "time": {
+            "received_at_micros": 1500000,
+            "observed_at_micros": 1500000,
+            "basis": {
+              "kind": "local_ingress"
+            }
+          },
+          "quality": {},
+          "provenance": {
+            "origin": {
+              "kind": "adsb_direct",
+              "band": "adsb1090"
+            },
+            "namespace": "icao",
+            "source": {
+              "id": 1,
+              "epoch": 0,
+              "delivery": "local_receiver"
+            }
+          }
+        },
+        "velocity": {
+          "value": {
+            "ground_speed_kt": 214.5,
+            "track_angle_deg_true": 87.25,
+            "vertical_rate_fpm": -640,
+            "vertical_rate_source": "barometric"
+          },
+          "time": {
+            "received_at_micros": 1500000,
+            "observed_at_micros": 1500000,
+            "basis": {
+              "kind": "local_ingress"
+            }
+          },
+          "quality": {
+            "nac_v": 2
+          },
+          "provenance": {
+            "origin": {
+              "kind": "adsb_direct",
+              "band": "adsb1090"
+            },
+            "namespace": "icao",
+            "source": {
+              "id": 1,
+              "epoch": 0,
+              "delivery": "local_receiver"
+            }
+          }
+        },
+        "callsign": {
+          "value": {
+            "text": "DAL123",
+            "kind": "callsign"
+          },
+          "time": {
+            "received_at_micros": 1200000,
+            "observed_at_micros": 1200000,
+            "basis": {
+              "kind": "local_ingress"
+            }
+          },
+          "quality": {},
+          "provenance": {
+            "origin": {
+              "kind": "adsb_direct",
+              "band": "adsb1090"
+            },
+            "namespace": "icao",
+            "source": {
+              "id": 1,
+              "epoch": 0,
+              "delivery": "local_receiver"
+            }
+          }
+        },
+        "squawk": {
+          "value": 3471,
+          "time": {
+            "received_at_micros": 1200000,
+            "observed_at_micros": 1200000,
+            "basis": {
+              "kind": "local_ingress"
+            }
+          },
+          "quality": {},
+          "provenance": {
+            "origin": {
+              "kind": "adsb_direct",
+              "band": "adsb1090"
+            },
+            "namespace": "icao",
+            "source": {
+              "id": 1,
+              "epoch": 0,
+              "delivery": "local_receiver"
+            }
+          }
+        },
+        "air_ground": {
+          "value": "subsonic",
+          "time": {
+            "received_at_micros": 1500000,
+            "observed_at_micros": 1500000,
+            "basis": {
+              "kind": "local_ingress"
+            }
+          },
+          "quality": {},
+          "provenance": {
+            "origin": {
+              "kind": "adsb_direct",
+              "band": "adsb1090"
+            },
+            "namespace": "icao",
+            "source": {
+              "id": 1,
+              "epoch": 0,
+              "delivery": "local_receiver"
+            }
+          }
+        },
+        "emergency": {
+          "value": "none",
+          "time": {
+            "received_at_micros": 1200000,
+            "observed_at_micros": 1200000,
+            "basis": {
+              "kind": "local_ingress"
+            }
+          },
+          "quality": {},
+          "provenance": {
+            "origin": {
+              "kind": "adsb_direct",
+              "band": "adsb1090"
+            },
+            "namespace": "icao",
+            "source": {
+              "id": 1,
+              "epoch": 0,
+              "delivery": "local_receiver"
+            }
+          }
+        },
+        "created_at_micros": 1000000,
+        "last_observed_at_micros": 1500000
+      }
+    }
+  }
+}

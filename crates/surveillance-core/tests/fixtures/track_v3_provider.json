@@ -1,0 +1,80 @@
+{
+  "schema_version": 3,
+  "delta": {
+    "kind": "updated",
+    "data": {
+      "producer_instance_id": 12,
+      "snapshot_revision": 8,
+      "snapshot": {
+        "id": 9,
+        "key": {
+          "namespace": "icao",
+          "address": 4219421
+        },
+        "identities": {
+          "primary": {
+            "namespace": "icao",
+            "address": 4219421
+          },
+          "associated": []
+        },
+        "phase": "coasting",
+        "ownship_shadow": false,
+        "position": {
+          "value": {
+            "latitude_deg": -33.946111,
+            "longitude_deg": 151.177222
+          },
+          "time": {
+            "received_at_micros": 2500000,
+            "observed_at_micros": 2100000,
+            "basis": {
+              "kind": "mapped",
+              "uncertainty_micros": 75000
+            }
+          },
+          "quality": {
+            "nic": 7,
+            "nac_p": 8,
+            "sil": 1
+          },
+          "provenance": {
+            "origin": {
+              "kind": "provider_fused"
+            },
+            "namespace": "icao",
+            "source": {
+              "id": 7,
+              "epoch": 2,
+              "delivery": "network_provider"
+            }
+          }
+        },
+        "pressure_altitude_ft": {
+          "value": 31000,
+          "time": {
+            "received_at_micros": 2500000,
+            "observed_at_micros": 2500000,
+            "basis": {
+              "kind": "unknown_source_time"
+            }
+          },
+          "quality": {},
+          "provenance": {
+            "origin": {
+              "kind": "unknown"
+            },
+            "namespace": "icao",
+            "source": {
+              "id": 8,
+              "epoch": 0,
+              "delivery": "unspecified"
+            }
+          }
+        },
+        "created_at_micros": 2000000,
+        "last_observed_at_micros": 2100000
+      }
+    }
+  }
+}

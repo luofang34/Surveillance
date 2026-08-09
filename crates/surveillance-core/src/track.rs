@@ -1,5 +1,7 @@
 //! Track identity, fused state, snapshots, and output deltas.
 
+use core::ops::Deref;
+
 use crate::observation::{AirGroundState, EmergencyState};
 use serde::{Deserialize, Serialize};
 
@@ -13,6 +15,67 @@ use crate::observation::{Callsign, Squawk, VelocityObservation, Wgs84Position};
 
 #[cfg(test)]
 mod tests;
+
+/// Identity of one running producer instance.
+///
+/// The application supplies a new value each time it constructs an engine.
+/// This keeps random-number and persistent identity policy outside the
+/// runtime-neutral core. Consumers use the value only for equality.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[serde(transparent)]
+pub struct ProducerInstanceId(u64);
+
+impl ProducerInstanceId {
+    /// Create an identity from an application-assigned value.
+    #[must_use]
+    pub const fn new(id: u64) -> Self {
+        Self(id)
+    }
+
+    /// Get the application-assigned value.
+    #[must_use]
+    pub const fn get(self) -> u64 {
+        self.0
+    }
+}
+
+/// Revision of one published state for one track.
+///
+/// A consumer compares revisions only when the producer identity and the
+/// [`TrackId`] are equal.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(transparent)]
+pub struct SnapshotRevision(u64);
+
+impl SnapshotRevision {
+    /// Create a revision from a serialized or stored value.
+    #[must_use]
+    pub const fn new(revision: u64) -> Self {
+        Self(revision)
+    }
+
+    /// Get the numeric revision.
+    #[must_use]
+    pub const fn get(self) -> u64 {
+        self.0
+    }
+
+    pub(crate) fn checked_advance(self, count: u8) -> Option<Self> {
+        let mut revision = self;
+        for _ in 0..count {
+            let next = revision.0.wrapping_add(1);
+            if next == 0 {
+                return None;
+            }
+            revision = Self(next);
+        }
+        Some(revision)
+    }
+
+    pub(crate) fn next(self) -> Option<Self> {
+        self.checked_advance(1)
+    }
+}
 
 /// Stable engine-assigned identity for one physical target.
 ///
@@ -179,6 +242,73 @@ impl TrackSnapshot {
     }
 }
 
+/// Retainable immutable view of one published track state.
+///
+/// The producer identity separates engines that can assign the same
+/// [`TrackId`]. The revision orders published states of this track from one
+/// producer. The handle owns its snapshot, so engine changes cannot change a
+/// retained handle.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct TrackSnapshotHandle {
+    producer_instance_id: ProducerInstanceId,
+    snapshot_revision: SnapshotRevision,
+    snapshot: TrackSnapshot,
+}
+
+impl TrackSnapshotHandle {
+    /// Create a handle from its envelope values and immutable state.
+    #[must_use]
+    pub const fn new(
+        producer_instance_id: ProducerInstanceId,
+        snapshot_revision: SnapshotRevision,
+        snapshot: TrackSnapshot,
+    ) -> Self {
+        Self {
+            producer_instance_id,
+            snapshot_revision,
+            snapshot,
+        }
+    }
+
+    /// Identity of the engine that published this state.
+    #[must_use]
+    pub const fn producer_instance_id(&self) -> ProducerInstanceId {
+        self.producer_instance_id
+    }
+
+    /// Revision assigned when this state was published.
+    #[must_use]
+    pub const fn snapshot_revision(&self) -> SnapshotRevision {
+        self.snapshot_revision
+    }
+
+    /// Borrow the immutable track state.
+    #[must_use]
+    pub const fn snapshot(&self) -> &TrackSnapshot {
+        &self.snapshot
+    }
+
+    /// Take the immutable track state from the handle.
+    #[must_use]
+    pub fn into_snapshot(self) -> TrackSnapshot {
+        self.snapshot
+    }
+}
+
+impl AsRef<TrackSnapshot> for TrackSnapshotHandle {
+    fn as_ref(&self) -> &TrackSnapshot {
+        &self.snapshot
+    }
+}
+
+impl Deref for TrackSnapshotHandle {
+    type Target = TrackSnapshot;
+
+    fn deref(&self) -> &Self::Target {
+        &self.snapshot
+    }
+}
+
 /// Latest fused surveillance state for one track: the exported snapshot plus
 /// engine-internal working data such as CPR pairing history and correlation
 /// evidence.
@@ -187,6 +317,7 @@ impl TrackSnapshot {
 pub struct TrackState {
     /// Exported view of the fused state.
     pub snapshot: TrackSnapshot,
+    pub(crate) snapshot_revision: SnapshotRevision,
     pub(crate) cpr: CprHistory,
     pub(crate) correlation: Vec<CorrelationEvidence>,
     pub(crate) identity_activity: Vec<IdentityActivity>,
@@ -196,6 +327,7 @@ impl From<TrackSnapshot> for TrackState {
     fn from(snapshot: TrackSnapshot) -> Self {
         Self {
             snapshot,
+            snapshot_revision: SnapshotRevision::new(0),
             cpr: CprHistory::default(),
             correlation: Vec::new(),
             identity_activity: Vec::new(),
@@ -204,6 +336,14 @@ impl From<TrackSnapshot> for TrackState {
 }
 
 impl TrackState {
+    pub(crate) fn handle(&self, producer_instance_id: ProducerInstanceId) -> TrackSnapshotHandle {
+        TrackSnapshotHandle::new(
+            producer_instance_id,
+            self.snapshot_revision,
+            self.snapshot.clone(),
+        )
+    }
+
     /// Record that `key` was just observed, so a track carrying several
     /// identities knows which of them is still being fed.
     pub(crate) fn mark_identity_seen(&mut self, key: TrackKey, at_micros: u64) {
@@ -244,13 +384,17 @@ pub(crate) struct IdentityActivity {
 #[serde(tag = "kind", content = "data", rename_all = "snake_case")]
 pub enum TrackDelta {
     /// A track was created, possibly position-absent.
-    Created(TrackSnapshot),
+    Created(TrackSnapshotHandle),
     /// A track's fused state meaningfully changed.
-    Updated(TrackSnapshot),
+    Updated(TrackSnapshotHandle),
     /// A track entered or continues coasting.
-    Coasting(TrackSnapshot),
+    Coasting(TrackSnapshotHandle),
     /// A track was removed.
     Removed {
+        /// Identity of the engine that removed the track.
+        producer_instance_id: ProducerInstanceId,
+        /// Revision assigned to the removal.
+        snapshot_revision: SnapshotRevision,
         /// Stable identity of the removed track.
         id: TrackId,
         /// Primary key at removal.
@@ -261,6 +405,33 @@ pub enum TrackDelta {
 }
 
 impl TrackDelta {
+    /// Identity of the engine that published the delta.
+    #[must_use]
+    pub fn producer_instance_id(&self) -> ProducerInstanceId {
+        match self {
+            Self::Created(handle) | Self::Updated(handle) | Self::Coasting(handle) => {
+                handle.producer_instance_id()
+            }
+            Self::Removed {
+                producer_instance_id,
+                ..
+            } => *producer_instance_id,
+        }
+    }
+
+    /// Revision assigned to the published delta.
+    #[must_use]
+    pub fn snapshot_revision(&self) -> SnapshotRevision {
+        match self {
+            Self::Created(handle) | Self::Updated(handle) | Self::Coasting(handle) => {
+                handle.snapshot_revision()
+            }
+            Self::Removed {
+                snapshot_revision, ..
+            } => *snapshot_revision,
+        }
+    }
+
     /// Stable identity of the track the delta describes.
     #[must_use]
     pub fn id(&self) -> TrackId {

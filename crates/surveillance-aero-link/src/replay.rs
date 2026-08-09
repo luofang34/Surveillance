@@ -35,6 +35,8 @@ use aero_link::{
     ReceptionRecord, ReceptionRecordDecodeError, ReceptionRecordHeader,
     decode_reception_record_with,
 };
+#[cfg(feature = "std")]
+use surveillance_core::SnapshotPublicationError;
 use surveillance_core::{IngestError, SurveillanceEngine, TrackDelta};
 #[cfg(feature = "std")]
 use thiserror::Error;
@@ -234,8 +236,10 @@ where
             }
             on_refusal(line_number, error);
         }
+        engine
+            .advance_time(clock_micros, &mut on_delta)
+            .map_err(|source| fault(ReplayFault::AdvanceTime { source }))?;
         counts.record(&outcome);
-        engine.advance_time(clock_micros, &mut on_delta);
     }
 }
 
@@ -363,5 +367,12 @@ pub enum ReplayFault {
         /// Failure reported by the engine.
         #[source]
         source: IngestError,
+    },
+    /// The engine could not publish a lifecycle transition.
+    #[error("the engine could not advance track time")]
+    AdvanceTime {
+        /// Publication failure reported by the engine.
+        #[source]
+        source: SnapshotPublicationError,
     },
 }

@@ -12,7 +12,7 @@ use aero_link::{
 };
 use surveillance_aero_link::NormalizeError;
 use surveillance_aero_link::replay::{ReplayCounts, ReplayError, replay_records};
-use surveillance_core::{EngineConfig, SurveillanceEngine, TrackDelta};
+use surveillance_core::{EngineConfig, ProducerInstanceId, SurveillanceEngine, TrackDelta};
 
 /// Even and odd halves of a published airborne position pair for one target.
 pub const EVEN_POSITION: &str = "8D40621D58C382D690C8AC2863A7";
@@ -108,7 +108,7 @@ pub struct Replayed {
 }
 
 pub fn replay_with(config: EngineConfig, stream: &[u8]) -> Replayed {
-    let mut engine = SurveillanceEngine::new(config);
+    let mut engine = SurveillanceEngine::new(config, ProducerInstanceId::new(1));
     let mut deltas = Vec::new();
     let mut refusals = Vec::new();
     let outcome = replay_records(
