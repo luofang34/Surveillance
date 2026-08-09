@@ -14,7 +14,7 @@ use records::{
     replay, replay_with,
 };
 use surveillance_aero_link::replay::{MAX_RECORD_LINE_BYTES, ReplayFault, replay_records};
-use surveillance_core::{EngineConfig, FreshnessPolicy, SurveillanceEngine};
+use surveillance_core::{EngineConfig, FreshnessPolicy, ProducerInstanceId, SurveillanceEngine};
 
 /// The two-phase decode exists so an unsupported schema is refused before its
 /// payload is read. The payload here cannot deserialize into an event at all,
@@ -285,7 +285,7 @@ fn a_stream_that_fails_to_read_reports_a_transport_fault() {
         fn consume(&mut self, _: usize) {}
     }
 
-    let mut engine = SurveillanceEngine::new(EngineConfig::default());
+    let mut engine = SurveillanceEngine::new(EngineConfig::default(), ProducerInstanceId::new(1));
     let error = replay_records(BrokenStream, &mut engine, |_| {}, |_, _| {})
         .expect_err("a broken stream is an error");
 

@@ -10,16 +10,19 @@
 use surveillance_core::{
     AddressNamespace, AirGroundState, Band, CURRENT_TRACK_SCHEMA_VERSION, Callsign, CallsignKind,
     DeliveryPath, EmergencyState, FieldProvenance, FieldQuality, ObservationOrigin,
-    ObservationTime, SourceRef, Squawk, TimeBasis, TimedField, TrackDelta, TrackId, TrackKey,
-    TrackPhase, TrackRecord, TrackRecordHeader, TrackSchemaError, TrackSnapshot,
-    VelocityObservation, VerticalRateSource, Wgs84Position,
+    ObservationTime, ProducerInstanceId, RemovalReason, SnapshotRevision, SourceRef, Squawk,
+    TimeBasis, TimedField, TrackDelta, TrackId, TrackKey, TrackPhase, TrackRecord,
+    TrackRecordHeader, TrackSchemaError, TrackSnapshot, TrackSnapshotHandle, VelocityObservation,
+    VerticalRateSource, Wgs84Position,
 };
 
-const CREATED_FIXTURE: &str = include_str!("fixtures/track_v2_created.json");
+const CREATED_FIXTURE: &str = include_str!("fixtures/track_v3_created.json");
 /// A record written before origin, delivery, and time were separated.
 const SUPERSEDED_FIXTURE: &str = include_str!("fixtures/track_v1_created_superseded.json");
+/// A record written before snapshots carried publication metadata.
+const VERSION_2_FIXTURE: &str = include_str!("fixtures/track_v2_created.json");
 /// A non-radio record: the wire forms the ADS-B fixture never reaches.
-const PROVIDER_FIXTURE: &str = include_str!("fixtures/track_v2_provider.json");
+const PROVIDER_FIXTURE: &str = include_str!("fixtures/track_v3_provider.json");
 
 const KEY: TrackKey = TrackKey::new(AddressNamespace::Icao, 0x00AC_82EC);
 const TRACK_FILE_KEY: TrackKey = TrackKey::new(AddressNamespace::TisbTrackFile, 66);
@@ -90,7 +93,11 @@ fn fixture_record() -> TrackRecord {
         adsb_provenance(),
     ));
     snapshot.last_observed_at_micros = 1_500_000;
-    TrackRecord::new(TrackDelta::Created(snapshot))
+    TrackRecord::new(TrackDelta::Created(TrackSnapshotHandle::new(
+        ProducerInstanceId::new(11),
+        SnapshotRevision::new(29),
+        snapshot,
+    )))
 }
 
 #[test]
@@ -137,15 +144,15 @@ fn float_fields_round_trip_bit_exact() {
 
 #[test]
 fn absent_fields_stay_absent_on_the_wire() {
-    let record = TrackRecord::new(TrackDelta::Created(TrackSnapshot::new(
-        TrackId::new(7),
-        KEY,
-        5_000,
+    let record = TrackRecord::new(TrackDelta::Created(TrackSnapshotHandle::new(
+        ProducerInstanceId::new(11),
+        SnapshotRevision::new(30),
+        TrackSnapshot::new(TrackId::new(7), KEY, 5_000),
     )));
     let serialized = serde_json::to_string(&record).expect("record serializes");
 
     let value: serde_json::Value = serde_json::from_str(&serialized).expect("JSON parses");
-    let data = &value["delta"]["data"];
+    let data = &value["delta"]["data"]["snapshot"];
     let object = data.as_object().expect("snapshot is an object");
     for absent in [
         "position",
@@ -167,7 +174,7 @@ fn absent_fields_stay_absent_on_the_wire() {
 #[test]
 fn unsupported_versions_fail_with_a_typed_error() {
     let unsupported =
-        CREATED_FIXTURE.replacen("\"schema_version\": 2", "\"schema_version\": 99", 1);
+        CREATED_FIXTURE.replacen("\"schema_version\": 3", "\"schema_version\": 99", 1);
     let record: TrackRecord =
         serde_json::from_str(&unsupported).expect("payload shape still decodes");
 
@@ -217,6 +224,40 @@ fn a_superseded_record_is_refused_by_version_not_misparsed() {
     );
 }
 
+#[test]
+fn a_version_2_record_is_refused_before_its_snapshot_is_interpreted() {
+    let header: TrackRecordHeader =
+        serde_json::from_str(VERSION_2_FIXTURE).expect("the header decodes from any version");
+    assert_eq!(header.schema_version(), 2);
+    assert_eq!(
+        header.validate().expect_err("version 2 is no longer read"),
+        TrackSchemaError::UnsupportedVersion {
+            found: 2,
+            supported: CURRENT_TRACK_SCHEMA_VERSION,
+        }
+    );
+}
+
+#[test]
+fn a_removal_keeps_its_producer_and_revision_on_the_wire() {
+    let record = TrackRecord::new(TrackDelta::Removed {
+        producer_instance_id: ProducerInstanceId::new(11),
+        snapshot_revision: SnapshotRevision::new(31),
+        id: TrackId::new(42),
+        key: KEY,
+        reason: RemovalReason::Expired,
+    });
+
+    let serialized = serde_json::to_string(&record).expect("record serializes");
+    let value: serde_json::Value = serde_json::from_str(&serialized).expect("JSON parses");
+    let data = &value["delta"]["data"];
+    assert_eq!(data["producer_instance_id"], 11);
+    assert_eq!(data["snapshot_revision"], 31);
+
+    let decoded: TrackRecord = serde_json::from_str(&serialized).expect("record decodes");
+    assert_eq!(decoded, record);
+}
+
 /// A provider-fused record with a mapped time, an unknown-time field, and a
 /// non-radio origin. The ADS-B fixture exercises none of those wire forms,
 /// so a change to any of them would otherwise round-trip untested.
@@ -252,7 +293,11 @@ fn provider_record() -> TrackRecord {
         ),
     ));
     snapshot.last_observed_at_micros = 2_100_000;
-    TrackRecord::new(TrackDelta::Updated(snapshot))
+    TrackRecord::new(TrackDelta::Updated(TrackSnapshotHandle::new(
+        ProducerInstanceId::new(12),
+        SnapshotRevision::new(8),
+        snapshot,
+    )))
 }
 
 #[test]

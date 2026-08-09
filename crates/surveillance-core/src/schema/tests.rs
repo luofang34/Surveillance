@@ -1,11 +1,21 @@
 #![allow(clippy::expect_used, clippy::panic)]
 
-use crate::schema::{CURRENT_TRACK_SCHEMA_VERSION, TrackRecord, TrackSchemaError};
-use crate::track::{AddressNamespace, TrackDelta, TrackId, TrackKey, TrackSnapshot};
+use crate::schema::{
+    CURRENT_TRACK_SCHEMA_VERSION, TrackRecord, TrackRecordHeader, TrackSchemaError,
+    validate_supported_version,
+};
+use crate::track::{
+    AddressNamespace, ProducerInstanceId, SnapshotRevision, TrackDelta, TrackId, TrackKey,
+    TrackSnapshot, TrackSnapshotHandle,
+};
 
 fn created_delta() -> TrackDelta {
     let key = TrackKey::new(AddressNamespace::Icao, 0x00AB_1234);
-    TrackDelta::Created(TrackSnapshot::new(TrackId::new(1), key, 0))
+    TrackDelta::Created(TrackSnapshotHandle::new(
+        ProducerInstanceId::new(7),
+        SnapshotRevision::new(3),
+        TrackSnapshot::new(TrackId::new(1), key, 0),
+    ))
 }
 
 #[test]
@@ -27,4 +37,19 @@ fn accessors_reject_a_version_this_library_does_not_read() {
     };
     assert_eq!(record.delta().expect_err("must reject"), expected);
     assert_eq!(record.into_delta().expect_err("must reject"), expected);
+}
+
+#[test]
+fn a_version_2_reader_rejects_the_version_3_header() {
+    let fixture = include_str!("../../tests/fixtures/track_v3_created.json");
+    let header: TrackRecordHeader =
+        serde_json::from_str(fixture).expect("the version header decodes without the payload");
+
+    assert_eq!(
+        validate_supported_version(header.schema_version(), 2).expect_err("version 3 must reject"),
+        TrackSchemaError::UnsupportedVersion {
+            found: 3,
+            supported: 2,
+        }
+    );
 }

@@ -31,7 +31,7 @@ SurveillanceEngine         (surveillance-core, single-writer state)
         |
         +----------------------+---------------------+
         v                      v                     v
-  TrackDelta stream      TrackSnapshot query    versioned records
+  TrackDelta stream   TrackSnapshotHandle query   versioned records
         |                                            |
         +-----------+----------------+               v
         v           v                v          recorders / replay /
@@ -338,6 +338,8 @@ and provenance (origin, namespace, source reference). Rules:
   position-absent.
 - Updates emit deltas only for meaningful change; duplicate-driven
   provenance refreshes stay silent.
+- A provenance or freshness refresh changes exported state. The engine gives
+  this state a new revision even when it emits no delta.
 - Coasting is entered deterministically inside `advance_time` when defining
   fields lapse; the track remains visible and labeled as coasting.
 - Removal is deterministic and driven only by `advance_time`; the engine
@@ -364,10 +366,21 @@ policy stay in the application.
 
 ## Exported schema, provenance, and time
 
-`TrackDelta` and `TrackSnapshot` cross process and machine boundaries —
-native apps, web viewers, recorders — so their serialization is part of the
-core contract, not an optional feature:
+`TrackDelta` and `TrackSnapshotHandle` can cross a process or machine boundary.
+Their serialization is part of the core contract:
 
+- The application supplies a new `ProducerInstanceId` for each engine
+  construction. The core does not make this identity.
+- Each track owns one `SnapshotRevision` counter. The counter orders states
+  only for that `TrackId` and `ProducerInstanceId` pair.
+- The engine uses `wrapping_add(1)` to calculate the next revision. It returns
+  `SnapshotPublicationError` before the revision wraps. The caller must use a
+  new `ProducerInstanceId` to continue publication.
+- `TrackSnapshotHandle` owns one immutable `TrackSnapshot`. It also carries
+  the producer identity and the revision for that state.
+- A retained handle does not change when the engine changes. A new snapshot
+  request returns a new owned handle when the track state changes.
+- A removal delta carries the producer identity and its assigned revision.
 - A versioned envelope (`TrackRecord`, `CURRENT_TRACK_SCHEMA_VERSION`) wraps
   every exported delta. Its fields are private; accessors validate the
   version and return a typed error for unsupported versions before any

@@ -8,14 +8,16 @@ use crate::engine::{EngineConfig, IngestError, SurveillanceEngine};
 use crate::observation::{
     Callsign, ObservationOrigin, ObservationTime, Squawk, TrafficObservation,
 };
-use crate::track::{AddressNamespace, TrackDelta, TrackId, TrackKey};
+use crate::track::{AddressNamespace, ProducerInstanceId, TrackDelta, TrackId, TrackKey};
 
 mod association;
 mod lifecycle;
 mod position;
+mod publication;
 
 pub(super) const ICAO: TrackKey = TrackKey::new(AddressNamespace::Icao, 0x00AC_82EC);
 pub(super) const OTHER_ICAO: TrackKey = TrackKey::new(AddressNamespace::Icao, 0x0040_621D);
+pub(super) const PRODUCER: ProducerInstanceId = ProducerInstanceId::new(1);
 
 pub(super) fn receiver(id: u32) -> SourceRef {
     SourceRef::new(id, 0, DeliveryPath::LocalReceiver)
@@ -26,7 +28,7 @@ pub(super) fn observation(at: u64, key: TrackKey, origin: ObservationOrigin) -> 
 }
 
 pub(super) fn engine() -> SurveillanceEngine {
-    SurveillanceEngine::new(EngineConfig::default())
+    SurveillanceEngine::new(EngineConfig::default(), PRODUCER)
 }
 
 pub(super) fn ingest(
@@ -42,7 +44,9 @@ pub(super) fn ingest(
 
 pub(super) fn advance(engine: &mut SurveillanceEngine, now_micros: u64) -> Vec<TrackDelta> {
     let mut deltas = Vec::new();
-    engine.advance_time(now_micros, |delta| deltas.push(delta.clone()));
+    engine
+        .advance_time(now_micros, |delta| deltas.push(delta.clone()))
+        .expect("time advance succeeds");
     deltas
 }
 
@@ -286,10 +290,13 @@ fn unsupplied_fields_stay_absent() {
 
 #[test]
 fn track_capacity_is_enforced_without_disturbing_existing_tracks() {
-    let mut engine = SurveillanceEngine::new(EngineConfig {
-        max_tracks: Some(1),
-        ..EngineConfig::default()
-    });
+    let mut engine = SurveillanceEngine::new(
+        EngineConfig {
+            max_tracks: Some(1),
+            ..EngineConfig::default()
+        },
+        PRODUCER,
+    );
 
     ingest(
         &mut engine,

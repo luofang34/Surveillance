@@ -4,7 +4,7 @@
 aviation traffic observations into coherent aircraft tracks. It accepts
 canonical observations from local radios, installed panels, network providers,
 replay, and simulation alike, and emits runtime-neutral `TrackDelta` and
-`TrackSnapshot` values through a versioned, serializable schema.
+`TrackSnapshotHandle` values through a versioned, serializable schema.
 
 The library owns state that spans traffic receptions: track identity across
 address namespaces, global CPR position reconstruction, per-field freshness
@@ -25,9 +25,9 @@ binding rules for anyone implementing against that design.
 - `SurveillanceEngine` is synchronous and single-writer: applications feed it
   observations and a monotonic clock; it emits deltas through caller-supplied
   callbacks. No channels, tasks, locks, or timers live inside the engine.
-- `TrackDelta` and `TrackSnapshot` serialize through a versioned envelope with
-  golden round-trip fixtures, so recordings, native apps, and web viewers share
-  one schema.
+- `TrackSnapshotHandle` owns an immutable track snapshot. It carries a producer
+  identity and a revision. `TrackDelta` and each handle use one versioned
+  schema with golden round-trip fixtures.
 - Optional adapters map track output to GDL 90 traffic reports and GeoLibre
   aircraft layers. Host-side testing applications (a replay CLI, a MapLibre
   viewer) are feature-gated and never load-bearing for library consumers.

@@ -1,14 +1,12 @@
 //! Versioned envelope for exported track records.
 //!
-//! [`crate::TrackDelta`] and [`crate::TrackSnapshot`] cross process and
-//! machine boundaries — native apps, web viewers, recorders — so their
-//! serialization is part of the core contract. Every exported delta rides a
-//! [`TrackRecord`] whose version is validated before any payload
-//! interpretation; readers decode [`TrackRecordHeader`] first so an
-//! incompatible payload shape fails with a typed version error rather than a
-//! generic deserialization error. Growth rules are additive: an optional
-//! field with an absent representation is compatible, and everything else
-//! bumps the version.
+//! [`crate::TrackDelta`] and [`crate::TrackSnapshotHandle`] can cross a process
+//! or machine boundary. Their serialization is part of the core contract.
+//! Each exported delta uses a [`TrackRecord`]. A reader decodes the
+//! [`TrackRecordHeader`] first. It validates the version before it decodes the
+//! payload. An incompatible payload thus gives a typed version error. An
+//! additive optional field is compatible when absence has a defined meaning.
+//! All other schema changes increase the version.
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -19,7 +17,7 @@ use crate::track::TrackDelta;
 mod tests;
 
 /// Schema version written by this library.
-pub const CURRENT_TRACK_SCHEMA_VERSION: u16 = 2;
+pub const CURRENT_TRACK_SCHEMA_VERSION: u16 = 3;
 
 /// One versioned exported track delta.
 ///
@@ -84,13 +82,14 @@ impl TrackRecordHeader {
 }
 
 fn validate_version(found: u16) -> Result<(), TrackSchemaError> {
-    if found == CURRENT_TRACK_SCHEMA_VERSION {
+    validate_supported_version(found, CURRENT_TRACK_SCHEMA_VERSION)
+}
+
+fn validate_supported_version(found: u16, supported: u16) -> Result<(), TrackSchemaError> {
+    if found == supported {
         Ok(())
     } else {
-        Err(TrackSchemaError::UnsupportedVersion {
-            found,
-            supported: CURRENT_TRACK_SCHEMA_VERSION,
-        })
+        Err(TrackSchemaError::UnsupportedVersion { found, supported })
     }
 }
 

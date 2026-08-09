@@ -1,7 +1,7 @@
 #![allow(clippy::expect_used, clippy::panic)]
 
 use crate::cpr::{CprFormat, CprFrame};
-use crate::engine::tests::{ICAO, advance, engine, ingest, observation};
+use crate::engine::tests::{ICAO, PRODUCER, advance, engine, ingest, observation};
 use crate::engine::{EngineConfig, SurveillanceEngine};
 use crate::observation::{ObservationOrigin, PositionObservation, Wgs84Position};
 use crate::source::Band;
@@ -106,12 +106,8 @@ fn a_decoded_position_applies_without_any_pairing() {
     observed.position = Some(PositionObservation::Decoded(TRUTH));
     ingest(&mut engine, observed);
 
-    let position = engine
-        .snapshot(ICAO)
-        .expect("track exists")
-        .position
-        .as_ref()
-        .expect("position applied");
+    let snapshot = engine.snapshot(ICAO).expect("track exists");
+    let position = snapshot.position.as_ref().expect("position applied");
     assert_near(position.value, TRUTH);
     assert_eq!(
         position.provenance.origin,
@@ -144,12 +140,8 @@ fn an_implausible_decoded_position_is_rejected() {
         "a jump across the globe in one second must not apply"
     );
 
-    let position = engine
-        .snapshot(ICAO)
-        .expect("track exists")
-        .position
-        .as_ref()
-        .expect("position retained");
+    let snapshot = engine.snapshot(ICAO).expect("track exists");
+    let position = snapshot.position.as_ref().expect("position retained");
     assert_near(position.value, TRUTH);
 }
 
@@ -169,12 +161,8 @@ fn an_established_track_decodes_a_lone_frame_against_its_own_position() {
 
     ingest(&mut engine, cpr_observation(1_000_000, EVEN));
 
-    let position = engine
-        .snapshot(ICAO)
-        .expect("track exists")
-        .position
-        .as_ref()
-        .expect("position applied");
+    let snapshot = engine.snapshot(ICAO).expect("track exists");
+    let position = snapshot.position.as_ref().expect("position applied");
     assert_near(position.value, TRUTH);
 }
 
@@ -243,7 +231,7 @@ fn a_surface_frame_needs_a_reference_position() {
             longitude_deg: 151.2,
         },
     ] {
-        let mut referenced = SurveillanceEngine::new(EngineConfig::default());
+        let mut referenced = SurveillanceEngine::new(EngineConfig::default(), PRODUCER);
         referenced.set_reference_position(Some(reference));
         ingest(&mut referenced, observed.clone());
 

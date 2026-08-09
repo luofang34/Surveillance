@@ -10,14 +10,20 @@ use crate::cpr::CprPolicy;
 use crate::freshness::FreshnessPolicy;
 use crate::fusion::FieldUpdate;
 use crate::observation::{TrafficObservation, Wgs84Position};
-use crate::track::{TrackDelta, TrackId, TrackKey, TrackPhase, TrackSnapshot, TrackState};
+use crate::track::{
+    ProducerInstanceId, TrackDelta, TrackId, TrackKey, TrackPhase, TrackSnapshot,
+    TrackSnapshotHandle, TrackState,
+};
 
 use position::PositionContext;
+pub use publication::SnapshotPublicationError;
+use publication::SnapshotPublisher;
 
 mod ingest;
 mod lifecycle;
 mod merge;
 mod position;
+mod publication;
 
 #[cfg(test)]
 mod tests;
@@ -50,9 +56,10 @@ pub struct EngineConfig {
 /// A delta materializes one snapshot clone, so deltas are emitted only when a
 /// consumer-visible value changes; duplicate receptions that merely refresh
 /// freshness and provenance stay silent.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct SurveillanceEngine {
     config: EngineConfig,
+    producer_instance_id: ProducerInstanceId,
     tracks: BTreeMap<TrackId, TrackState>,
     keys: BTreeMap<TrackKey, TrackId>,
     ownship: Vec<TrackKey>,
@@ -62,10 +69,15 @@ pub struct SurveillanceEngine {
 
 impl SurveillanceEngine {
     /// Create an engine with no tracks.
+    ///
+    /// The caller must supply a new `producer_instance_id` for each engine
+    /// construction. The core has no clock, random source, or global identity
+    /// registry from which it can make this value.
     #[must_use]
-    pub fn new(config: EngineConfig) -> Self {
+    pub fn new(config: EngineConfig, producer_instance_id: ProducerInstanceId) -> Self {
         Self {
             config,
+            producer_instance_id,
             tracks: BTreeMap::new(),
             keys: BTreeMap::new(),
             ownship: Vec::new(),
@@ -78,6 +90,12 @@ impl SurveillanceEngine {
     #[must_use]
     pub fn config(&self) -> &EngineConfig {
         &self.config
+    }
+
+    /// Identity supplied for this engine construction.
+    #[must_use]
+    pub fn producer_instance_id(&self) -> ProducerInstanceId {
+        self.producer_instance_id
     }
 
     /// Apply one normalized observation, emitting resulting deltas to
@@ -100,10 +118,13 @@ impl SurveillanceEngine {
         let Some(state) = self.tracks.get_mut(&id) else {
             return Ok(());
         };
+        let publisher = SnapshotPublisher::new(self.producer_instance_id);
+        publisher.ensure_capacity(state, 1)?;
 
-        let mut changed = ingest::apply_fields(&mut state.snapshot, &observation, &policy);
+        let field_changes = ingest::apply_fields(&mut state.snapshot, &observation, &policy);
         let position_update = position::apply(state, &observation, context);
-        changed |= position_update.is_meaningful();
+        let mut snapshot_changed = field_changes.was_applied() || position_update.was_applied();
+        let mut meaningful = field_changes.is_meaningful() || position_update.is_meaningful();
 
         state.mark_identity_seen(observation.key, observation.time.received_at_micros);
         // Liveness ages from when the target was observed, not from when the
@@ -113,20 +134,26 @@ impl SurveillanceEngine {
         let observed_at = observation.time.observed_at_micros;
         if observed_at > state.snapshot.last_observed_at_micros {
             state.snapshot.last_observed_at_micros = observed_at;
+            snapshot_changed = true;
         }
         if state.snapshot.phase == TrackPhase::Coasting {
             state.snapshot.phase = TrackPhase::Active;
-            changed = true;
+            snapshot_changed = true;
+            meaningful = true;
         }
 
         if created {
-            on_delta(&TrackDelta::Created(state.snapshot.clone()));
-        } else if changed {
-            on_delta(&TrackDelta::Updated(state.snapshot.clone()));
+            let delta = TrackDelta::Created(publisher.snapshot(state)?);
+            on_delta(&delta);
+        } else if meaningful {
+            let delta = TrackDelta::Updated(publisher.snapshot(state)?);
+            on_delta(&delta);
+        } else if snapshot_changed {
+            publisher.revise(state)?;
         }
 
         if position_update != FieldUpdate::Rejected {
-            self.correlate(id, observation.time.received_at_micros, &mut on_delta);
+            self.correlate(id, observation.time.received_at_micros, &mut on_delta)?;
         }
         Ok(())
     }
@@ -142,24 +169,24 @@ impl SurveillanceEngine {
         subject: TrackId,
         now_micros: u64,
         on_delta: &mut impl FnMut(&TrackDelta),
-    ) {
+    ) -> Result<(), SnapshotPublicationError> {
         let outcomes = self.compare_peers(subject, now_micros);
         if outcomes.is_empty() {
-            return;
+            return Ok(());
         }
 
         let policy = self.config.correlation;
         let Some(state) = self.tracks.get_mut(&subject) else {
-            return;
+            return Ok(());
         };
         let Some(peer) = association::record(&mut state.correlation, &outcomes, &policy) else {
-            return;
+            return Ok(());
         };
 
         let (Some(subject_state), Some(peer_state)) =
             (self.tracks.get(&subject), self.tracks.get(&peer))
         else {
-            return;
+            return Ok(());
         };
         let survivor = merge::survivor_of(subject_state, peer_state);
         let absorbed = if survivor == subject { peer } else { subject };
@@ -169,8 +196,10 @@ impl SurveillanceEngine {
             survivor,
             absorbed,
             &self.config.freshness,
+            &SnapshotPublisher::new(self.producer_instance_id),
             on_delta,
-        );
+        )?;
+        Ok(())
     }
 
     fn compare_peers(&self, subject: TrackId, now_micros: u64) -> Vec<(TrackId, bool)> {
@@ -204,14 +233,25 @@ impl SurveillanceEngine {
     ///
     /// Expiration happens here and only here; ingestion order never expires
     /// state.
-    pub fn advance_time(&mut self, now_micros: u64, mut on_delta: impl FnMut(&TrackDelta)) {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SnapshotPublicationError`] before a subject's revision
+    /// would wrap.
+    pub fn advance_time(
+        &mut self,
+        now_micros: u64,
+        mut on_delta: impl FnMut(&TrackDelta),
+    ) -> Result<(), SnapshotPublicationError> {
+        let publisher = SnapshotPublisher::new(self.producer_instance_id);
         lifecycle::advance(
             &mut self.tracks,
             &mut self.keys,
             now_micros,
             &self.config,
+            &publisher,
             &mut on_delta,
-        );
+        )
     }
 
     /// Replace the caller-supplied ownship identity set used for
@@ -220,27 +260,36 @@ impl SurveillanceEngine {
     ///
     /// The engine labels matching tracks as shadows and suppresses nothing;
     /// ownship selection and display policy stay in the application.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SnapshotPublicationError`] before a changed subject's
+    /// revision would wrap.
     pub fn set_ownship_identities(
         &mut self,
         identities: &[TrackKey],
         mut on_delta: impl FnMut(&TrackDelta),
-    ) {
+    ) -> Result<(), SnapshotPublicationError> {
+        let publisher = SnapshotPublisher::new(self.producer_instance_id);
+        for state in self.tracks.values() {
+            let shadow = is_ownship_shadow(&state.snapshot, identities);
+            if state.snapshot.ownship_shadow != shadow {
+                publisher.ensure_capacity(state, 1)?;
+            }
+        }
+
         self.ownship.clear();
         self.ownship.extend_from_slice(identities);
 
         for state in self.tracks.values_mut() {
-            let shadow = state
-                .snapshot
-                .identities
-                .associated()
-                .iter()
-                .chain(core::iter::once(&state.snapshot.identities.primary()))
-                .any(|key| self.ownship.contains(key));
+            let shadow = is_ownship_shadow(&state.snapshot, &self.ownship);
             if state.snapshot.ownship_shadow != shadow {
                 state.snapshot.ownship_shadow = shadow;
-                on_delta(&TrackDelta::Updated(state.snapshot.clone()));
+                let delta = TrackDelta::Updated(publisher.snapshot(state)?);
+                on_delta(&delta);
             }
         }
+        Ok(())
     }
 
     /// Ownship identities the engine labels shadows from.
@@ -271,22 +320,28 @@ impl SurveillanceEngine {
         self.tracks.len()
     }
 
-    /// Snapshot of the track whose primary key is `key`, when one exists.
+    /// Retainable snapshot of the track whose primary key is `key`.
     #[must_use]
-    pub fn snapshot(&self, key: TrackKey) -> Option<&TrackSnapshot> {
+    pub fn snapshot(&self, key: TrackKey) -> Option<TrackSnapshotHandle> {
         let id = self.keys.get(&key)?;
-        self.tracks.get(id).map(|state| &state.snapshot)
+        self.tracks
+            .get(id)
+            .map(|state| state.handle(self.producer_instance_id))
     }
 
-    /// Snapshot of the track carrying `id`, when one exists.
+    /// Retainable snapshot of the track carrying `id`.
     #[must_use]
-    pub fn snapshot_by_id(&self, id: TrackId) -> Option<&TrackSnapshot> {
-        self.tracks.get(&id).map(|state| &state.snapshot)
+    pub fn snapshot_by_id(&self, id: TrackId) -> Option<TrackSnapshotHandle> {
+        self.tracks
+            .get(&id)
+            .map(|state| state.handle(self.producer_instance_id))
     }
 
-    /// Iterate snapshots of every maintained track in [`TrackId`] order.
-    pub fn snapshots(&self) -> impl Iterator<Item = &TrackSnapshot> {
-        self.tracks.values().map(|state| &state.snapshot)
+    /// Iterate retainable snapshots in [`TrackId`] order.
+    pub fn snapshots(&self) -> impl Iterator<Item = TrackSnapshotHandle> + '_ {
+        self.tracks
+            .values()
+            .map(|state| state.handle(self.producer_instance_id))
     }
 
     /// Find the existing track for an observation, or create one.
@@ -325,4 +380,20 @@ pub enum IngestError {
         /// Configured [`EngineConfig::max_tracks`] bound.
         capacity: usize,
     },
+    /// The engine cannot publish the resulting track state.
+    #[error("publishing the track state failed")]
+    SnapshotPublication {
+        /// Publication failure with the producer and subject context.
+        #[from]
+        source: SnapshotPublicationError,
+    },
+}
+
+fn is_ownship_shadow(snapshot: &TrackSnapshot, ownship: &[TrackKey]) -> bool {
+    snapshot
+        .identities
+        .associated()
+        .iter()
+        .chain(core::iter::once(&snapshot.identities.primary()))
+        .any(|key| ownship.contains(key))
 }

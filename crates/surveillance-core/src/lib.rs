@@ -9,7 +9,7 @@
 //! It owns state that spans receptions — track identity across address
 //! namespaces, global CPR reconstruction, per-field freshness
 //! and provenance, cross-link fusion, coasting, and expiration — and emits
-//! [`TrackDelta`] and [`TrackSnapshot`] values through a versioned schema.
+//! [`TrackDelta`] and [`TrackSnapshotHandle`] values through a versioned schema.
 //!
 //! The crate is `no_std + alloc` by default and contains no channels, tasks,
 //! locks, executors, sockets, timers, or global registries. Applications feed
@@ -35,7 +35,7 @@ pub mod track;
 
 pub use association::{CorrelationPolicy, agrees, may_correlate, namespace_rank};
 pub use cpr::{CprDecodeError, CprFormat, CprFrame, CprFrameError, CprPolicy};
-pub use engine::{EngineConfig, IngestError, SurveillanceEngine};
+pub use engine::{EngineConfig, IngestError, SnapshotPublicationError, SurveillanceEngine};
 pub use freshness::{FieldProvenance, FieldQuality, FreshnessPolicy, TimedField};
 pub use fusion::{FieldUpdate, fuse, origin_rank};
 pub use identity::IdentitySet;
@@ -50,6 +50,6 @@ pub use schema::{
 };
 pub use source::{Band, DeliveryPath, SourceRef};
 pub use track::{
-    AddressNamespace, RemovalReason, TrackDelta, TrackId, TrackKey, TrackPhase, TrackSnapshot,
-    TrackState,
+    AddressNamespace, ProducerInstanceId, RemovalReason, SnapshotRevision, TrackDelta, TrackId,
+    TrackKey, TrackPhase, TrackSnapshot, TrackSnapshotHandle, TrackState,
 };
