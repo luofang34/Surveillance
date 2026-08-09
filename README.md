@@ -28,9 +28,9 @@ binding rules for anyone implementing against that design.
 - `TrackSnapshotHandle` owns an immutable track snapshot. It carries a producer
   identity and a revision. `TrackDelta` and each handle use one versioned
   schema with golden round-trip fixtures.
-- Optional adapters map track output to GDL 90 traffic reports and GeoLibre
-  aircraft layers. Host-side testing applications (a replay CLI, a MapLibre
-  viewer) are feature-gated and never load-bearing for library consumers.
+- `surveillance-geojson` maps track output to typed aircraft features. Its
+  GeoJSON serialization is optional. A planned replay CLI is separate from
+  library builds.
 
 ## Workspace
 
@@ -40,9 +40,11 @@ binding rules for anyone implementing against that design.
   CPR, fusion, freshness, and the exported schema. Depends on no link decoder.
 - `crates/surveillance-aero-link` — normalizes `aero-link` radio receptions
   into canonical observations.
+- `crates/surveillance-geojson` — maps track deltas to renderer-neutral
+  aircraft feature changes. GeoJSON encoding is an opt-in feature.
 
-Planned crates for output adapters and host testing tools are tracked in the
-repository issues.
+Planned output adapters and host testing tools are tracked in the repository
+issues.
 
 ## Checks
 

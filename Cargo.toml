@@ -7,7 +7,11 @@ description = "Platform-independent aircraft tracking from radio, panel, network
 license = "MIT"
 
 [workspace]
-members = ["crates/surveillance-aero-link", "crates/surveillance-core"]
+members = [
+    "crates/surveillance-aero-link",
+    "crates/surveillance-core",
+    "crates/surveillance-geojson",
+]
 default-members = ["."]
 resolver = "3"
 
