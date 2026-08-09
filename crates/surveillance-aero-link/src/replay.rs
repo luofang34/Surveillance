@@ -77,7 +77,7 @@ pub struct ReplayCounts {
     pub receptions_consumed: u64,
     /// Observations that reached the engine.
     pub observations_produced: u64,
-    /// Receptions that carry no traffic, thus weather and other uplink
+    /// Receptions that carry no traffic, which is weather and other uplink
     /// content.
     pub receptions_skipped_not_traffic: u64,
     /// Traffic receptions the adapter refused to normalize.
@@ -139,25 +139,45 @@ pub fn ingest_event(
 ///
 /// A caller that reads a live stream through [`ingest_event`] applies the
 /// same rule with this function, so a live run and a replay agree.
+///
+/// The match is exhaustive on purpose. A wildcard would put each refusal
+/// added upstream on the per-reception side without a decision, which is the
+/// error this rule exists to prevent.
 #[must_use]
 pub fn refusal_ends_the_stream(error: &NormalizeError) -> bool {
-    matches!(error, NormalizeError::UnsupportedPayload)
+    match error {
+        NormalizeError::UnsupportedPayload => true,
+        NormalizeError::NoTargetIdentity { .. }
+        | NormalizeError::UnconfirmedAddress { .. }
+        | NormalizeError::ServiceManagement
+        | NormalizeError::ReservedAddressQualifier { .. }
+        | NormalizeError::Squawk(_) => false,
+    }
 }
 
 /// Read a newline-delimited stream of reception records and drive `engine`
 /// with the traffic in it.
 ///
 /// Each non-empty line must hold one JSON `ReceptionRecord`. `on_delta`
-/// receives every track delta, and `on_refusal` receives the line and the
-/// reason for each traffic reception the adapter refused. Refusals are normal
-/// on 1090 MHz, where frames that name no target still have a traffic
-/// projection, so the reason is what separates ordinary refusals from a
-/// change upstream that refuses everything.
+/// receives every track delta. `on_refusal` receives the line and the reason
+/// for each traffic reception the reader refused and then continued past.
+/// Refusals are normal on 1090 MHz, where frames that name no target still
+/// have a traffic projection, so the reason is what separates ordinary
+/// refusals from a change upstream that refuses everything. A refusal that
+/// ends the stream does not reach `on_refusal`, because the error carries it
+/// and the tally does not count it.
 ///
 /// Time moves forward with the recording. After each reception the reader
-/// advances the engine to the largest arrival time it has seen, so a
+/// advances the engine to the largest arrival time it has read, so a
 /// recording produces the coasting and removal deltas that its length calls
 /// for. The reader never reads a clock.
+///
+/// One recording is one runtime clock. Receptions can arrive a little out of
+/// order, and the largest arrival time absorbs that. A reception that is
+/// older than the removal window is different: the engine would expire the
+/// track it makes before the next reception arrives. Such a step backwards
+/// is evidence of two recordings joined together, or of a damaged arrival
+/// time, so the reader stops.
 ///
 /// # Errors
 ///
@@ -179,6 +199,7 @@ where
     let mut clock_micros = 0_u64;
     let mut line = Vec::new();
     let mut line_number = 0_u64;
+    let backward_limit = engine.config().freshness.remove_after_micros;
 
     loop {
         line.clear();
@@ -192,13 +213,19 @@ where
         if read_bounded_line(&mut stream, &mut line).map_err(fault)? == 0 {
             return Ok(counts);
         }
-        strip_terminator(&mut line);
         if line.iter().all(u8::is_ascii_whitespace) {
             continue;
         }
 
         let event = decode_event(&line).map_err(fault)?;
-        clock_micros = clock_micros.max(event.received_at_micros);
+        let arrival_micros = event.received_at_micros;
+        if arrival_micros.saturating_add(backward_limit) < clock_micros {
+            return Err(fault(ReplayFault::ArrivalWentBackwards {
+                arrival_micros,
+                clock_micros,
+            }));
+        }
+        clock_micros = clock_micros.max(arrival_micros);
         let outcome = ingest_event(&event, engine, &mut on_delta)
             .map_err(|source| fault(ReplayFault::Ingest { source }))?;
         if let ReceptionOutcome::Refused(error) = &outcome {
@@ -212,16 +239,23 @@ where
     }
 }
 
-/// Read one line, refusing a line longer than [`MAX_RECORD_LINE_BYTES`].
+/// Read one line and remove its terminator, refusing a line whose content is
+/// longer than [`MAX_RECORD_LINE_BYTES`].
 ///
-/// Returns the number of bytes read, thus zero at the end of the stream.
+/// Returns the number of bytes read, which is zero at the end of the stream.
+///
+/// The read stops two bytes beyond the limit, which is one byte of content
+/// more than the limit allows plus the longest terminator. The length is
+/// measured after the terminator goes, so the limit means the same for a
+/// recording that ends a line with `\n` and for one that ends it with `\r\n`.
 #[cfg(feature = "std")]
 fn read_bounded_line(stream: &mut impl BufRead, line: &mut Vec<u8>) -> Result<usize, ReplayFault> {
-    let limit = MAX_RECORD_LINE_BYTES as u64;
+    let ceiling = (MAX_RECORD_LINE_BYTES as u64).saturating_add(3);
     let read = stream
-        .take(limit.wrapping_add(1))
+        .take(ceiling)
         .read_until(b'\n', line)
         .map_err(|source| ReplayFault::Read { source })?;
+    strip_terminator(line);
     if line.len() > MAX_RECORD_LINE_BYTES {
         return Err(ReplayFault::LineTooLong {
             limit: MAX_RECORD_LINE_BYTES,
@@ -302,6 +336,19 @@ pub enum ReplayFault {
         /// Failure reported by the record decoder.
         #[source]
         source: ReceptionRecordDecodeError<serde_json::Error>,
+    },
+    /// The arrival time goes back further than one runtime clock can go.
+    ///
+    /// The engine would expire the track this reception makes before the next
+    /// reception arrives, so the recording is not one continuous stream.
+    #[error(
+        "arrival time {arrival_micros} is older than the clock {clock_micros} by more than one removal window"
+    )]
+    ArrivalWentBackwards {
+        /// Arrival time declared by the reception on this line.
+        arrival_micros: u64,
+        /// Largest arrival time read before this line.
+        clock_micros: u64,
     },
     /// The record names a band this build does not normalize.
     #[error("the record names a band this build does not normalize")]

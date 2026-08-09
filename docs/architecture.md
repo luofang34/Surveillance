@@ -505,6 +505,14 @@ arrival time it has read. A reader that only ingests gives a delta stream
 that no live run can give: no track coasts, no track expires, and the track
 table grows for the full length of the recording.
 
+One recording is one runtime clock. Receptions can arrive a little out of
+order, and the largest arrival time absorbs that. A reception older than the
+removal window is different. The engine would expire the track that reception
+makes before the next reception arrives, thus each following reception would
+make a track and lose it again. Such a step backwards is evidence of two
+recordings joined together, or of a damaged arrival time, so the reader
+stops.
+
 The reader divides a stream fault from a reception fault:
 
 - A line that does not decode makes the remainder of the recording
@@ -525,9 +533,9 @@ The reader divides a stream fault from a reception fault:
 
 The reader gives four counts: receptions consumed, observations produced,
 receptions skipped as not traffic, and receptions refused. The first count is
-always the sum of the other three. An error also carries these counts, thus
-for the lines before the failure, because the engine keeps the changes those
-lines applied.
+always the sum of the other three. An error carries the same counts for the
+lines before the failure. The engine keeps the changes those lines applied,
+so the caller can report what it ingested before it stopped.
 
 A line has a maximum length. Two recordings joined without a newline between
 them make one line from two files, and a recording that stops in the middle

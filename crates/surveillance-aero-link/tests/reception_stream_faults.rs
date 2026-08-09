@@ -14,7 +14,7 @@ use records::{
     replay, replay_with,
 };
 use surveillance_aero_link::replay::{MAX_RECORD_LINE_BYTES, ReplayFault, replay_records};
-use surveillance_core::{EngineConfig, SurveillanceEngine};
+use surveillance_core::{EngineConfig, FreshnessPolicy, SurveillanceEngine};
 
 /// The two-phase decode exists so an unsupported schema is refused before its
 /// payload is read. The payload here cannot deserialize into an event at all,
@@ -110,18 +110,32 @@ fn a_malformed_line_stops_the_stream_and_reports_the_tally_so_far() {
 
 /// A damaged byte inside a record is a fault in the recording. To report it
 /// as a read failure would send an operator to examine the file handle.
+///
+/// The two streams here differ by one byte, and the byte sits inside a JSON
+/// string value. The record is thus well formed in every other way, so the
+/// damaged byte is the only thing that can account for the difference.
 #[test]
-fn an_invalid_utf8_byte_is_a_record_fault_and_not_a_transport_fault() {
-    let mut bytes = recorded(&[position_event(1_000, ODD_POSITION)]).into_bytes();
-    bytes.extend_from_slice(&[0xFF, 0xFE, b'\n']);
+fn an_invalid_utf8_byte_inside_a_record_is_a_record_fault() {
+    let clean = recorded(&[position_event(1_000, ODD_POSITION)]).into_bytes();
+    let transport = clean
+        .windows(3)
+        .position(|window| window == b"usb")
+        .expect("the record names its transport as a JSON string");
 
-    let replayed = replay_with(EngineConfig::default(), &bytes);
-    let error = replayed.outcome.expect_err("a damaged record is refused");
+    let mut damaged = clean.clone();
+    damaged[transport + 1] = 0xFF;
 
-    assert_eq!(error.line, 2);
+    replay_with(EngineConfig::default(), &clean)
+        .outcome
+        .expect("the undamaged record replays");
+
+    let error = replay_with(EngineConfig::default(), &damaged)
+        .outcome
+        .expect_err("the damaged record is refused");
+    assert_eq!(error.line, 1);
     assert!(
         matches!(error.kind, ReplayFault::Decode { .. }),
-        "expected a record fault, got {:?}",
+        "a damaged byte is a record fault, not a transport fault, got {:?}",
         error.kind
     );
 }
@@ -141,6 +155,91 @@ fn a_line_longer_than_one_record_is_refused_rather_than_read_whole() {
         ReplayFault::LineTooLong { limit } => assert_eq!(limit, MAX_RECORD_LINE_BYTES),
         other => panic!("expected a length refusal, got {other:?}"),
     }
+}
+
+/// The limit counts the content of a line and not its terminator, so it means
+/// the same for a recording that ends a line with `\n` and for one that ends
+/// it with `\r\n`.
+#[test]
+fn the_length_limit_counts_content_and_not_the_line_terminator() {
+    for terminator in ["\n", "\r\n"] {
+        let mut at_limit = vec![b'x'; MAX_RECORD_LINE_BYTES];
+        at_limit.extend_from_slice(terminator.as_bytes());
+        let error = replay_with(EngineConfig::default(), &at_limit)
+            .outcome
+            .expect_err("a line of x characters is not a record");
+        assert!(
+            matches!(error.kind, ReplayFault::Decode { .. }),
+            "content of exactly the limit must reach the decoder with {terminator:?}, got {:?}",
+            error.kind
+        );
+
+        let mut past_limit = vec![b'x'; MAX_RECORD_LINE_BYTES + 1];
+        past_limit.extend_from_slice(terminator.as_bytes());
+        let error = replay_with(EngineConfig::default(), &past_limit)
+            .outcome
+            .expect_err("one byte more is too long");
+        assert!(
+            matches!(error.kind, ReplayFault::LineTooLong { .. }),
+            "one byte past the limit must be refused with {terminator:?}, got {:?}",
+            error.kind
+        );
+    }
+}
+
+/// Two recordings joined with a newline between them are one file whose clock
+/// restarts. The engine would expire each track the second recording makes
+/// before the next reception arrived, so the reader refuses the step instead
+/// of absorbing it.
+#[test]
+fn a_step_backwards_past_the_removal_window_stops_the_stream() {
+    let freshness = FreshnessPolicy::default();
+    let stream = recorded(&[
+        position_event(1_000, ODD_POSITION),
+        position_event(freshness.remove_after_micros + 2_000, EVEN_POSITION),
+        // The second recording begins again near zero.
+        position_event(1_000, OTHER_AIRCRAFT),
+    ]);
+
+    let replayed = replay(&stream);
+    let error = replayed.outcome.expect_err("the clock restarted");
+
+    assert_eq!(error.line, 3);
+    match error.kind {
+        ReplayFault::ArrivalWentBackwards {
+            arrival_micros,
+            clock_micros,
+        } => {
+            assert_eq!(arrival_micros, 1_000);
+            assert_eq!(clock_micros, freshness.remove_after_micros + 2_000);
+        }
+        other => panic!("expected a backward clock refusal, got {other:?}"),
+    }
+    assert_eq!(error.counts.receptions_consumed, 2);
+}
+
+/// Receptions can arrive a little out of order. The largest arrival time
+/// absorbs that, and the engine never sees the clock go backwards.
+#[test]
+fn a_small_step_backwards_in_arrival_time_is_absorbed() {
+    let stream = recorded(&[
+        position_event(1_000, ODD_POSITION),
+        position_event(5_000, OTHER_AIRCRAFT),
+        position_event(2_000, EVEN_POSITION),
+    ]);
+
+    let replayed = replay(&stream);
+    let counts = replayed
+        .outcome
+        .expect("a reception that is slightly late is normal");
+
+    assert_eq!(counts.receptions_consumed, 3);
+    assert_eq!(counts.observations_produced, 3);
+    assert_eq!(
+        replayed.engine.track_count(),
+        2,
+        "no track expired because of the late reception"
+    );
 }
 
 /// The engine refuses a new target when its track bound is full. That is a
