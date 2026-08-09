@@ -11,9 +11,9 @@
 //! a canonical observation is an adapter's job: enable the `aero-link`
 //! feature for that, and a build that does not never links a decoder.
 //!
-//! The default build is `no_std + alloc`. Host-side testing applications
-//! (a replay CLI, a MapLibre viewer) and output adapters (GDL 90, GeoLibre)
-//! are opt-in and never load-bearing for library consumers.
+//! The default build is `no_std + alloc`. Host-side testing tools and output
+//! adapters are separate, opt-in components. A library consumer does not
+//! compile them.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 

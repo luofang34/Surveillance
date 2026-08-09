@@ -36,4 +36,11 @@ if cargo tree --locked -p surveillance --no-default-features --prefix none \
     fail 'the umbrella default build must not link the aero-link adapter; it is opt-in'
 fi
 
+# 4. Typed feature mapping must not link a JSON encoder unless the consumer
+#    enables the GeoJSON feature.
+if cargo tree --locked -p surveillance-geojson --no-default-features \
+    --edges normal --prefix none | grep -qE '^serde_json '; then
+    fail 'the surveillance-geojson default build must not link serde_json; it is opt-in'
+fi
+
 printf '%s\n' 'dependency boundaries hold'

@@ -12,6 +12,10 @@ for target in \
     cargo check --locked \
         -p surveillance-core \
         -p surveillance-aero-link \
+        -p surveillance-geojson \
         -p surveillance \
         --no-default-features --target "$target"
+    cargo check --locked \
+        -p surveillance-geojson \
+        --no-default-features --features geojson --target "$target"
 done

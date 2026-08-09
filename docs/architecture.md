@@ -35,7 +35,7 @@ SurveillanceEngine         (surveillance-core, single-writer state)
         |                                            |
         +-----------+----------------+               v
         v           v                v          recorders / replay /
-  GDL 90 adapter  GeoLibre adapter  app logic   web viewers
+  GDL 90 adapter   GeoJSON adapter  app logic   web viewers
 ```
 
 `aero-link` owns everything that completes within one reception: framing,
@@ -63,9 +63,8 @@ surveillance-core ---- no_std + alloc, source-neutral, depends on no decoder
         |------ surveillance-aero-link (adapter; depends on aero-link)
         |------ surveillance (umbrella re-export; adapter is opt-in)
         |------ surveillance-gdl90     (planned: TrackSnapshot -> GDL 90 payloads)
-        |------ surveillance-geolibre  (planned: TrackDelta -> aircraft features)
-        |------ host testing apps      (planned: replay CLI, MapLibre viewer;
-                                        std/host feature-gated, never default)
+        |------ surveillance-geojson   (TrackDelta -> typed aircraft features)
+        |------ host testing app       (planned: replay CLI; std/host gated)
 ```
 
 - `surveillance-core` depends only on `libm`, `serde`, and `thiserror`. It
@@ -77,6 +76,9 @@ surveillance-core ---- no_std + alloc, source-neutral, depends on no decoder
   Because both are foreign to it, those conversions are explicit functions
   rather than `From` implementations, so a variant added upstream fails to
   compile here instead of silently arriving as something else.
+- `surveillance-geojson` maps track output to renderer-neutral aircraft
+  feature changes. Its optional `geojson` feature serializes these changes as
+  RFC 7946 features.
 - `scripts/check-boundaries.sh` enforces the split in CI.
 - `surveillance` is the umbrella package applications name in `Cargo.toml`.
   Its default features re-export exactly the portable core. Host-side testing
@@ -421,38 +423,26 @@ escaping, scheduling, transport, and backpressure.
 
 ### Map features
 
-The map-feature boundary, the reasoning behind it, and the preview plan are
-specified in [map features and the preview boundary](map-features.md). In
-short: the adapter owns a renderer-neutral feature vocabulary and depends on
-no renderer, GeoJSON is the interchange format rather than the API, and the
-binding to an actual map lives in an application target outside the Cargo
-workspace.
+The [map feature boundary](map-features.md) defines the adapter contract.
+`surveillance-geojson` converts `TrackDelta` values into typed upserts, stale
+changes, and removals. The crate has no renderer dependency. GeoJSON is an
+optional serialization and is not the typed API.
 
-### GeoLibre
-
-`surveillance-geolibre` converts `TrackDelta` values into aircraft feature
-upserts, stale/coasting changes, and removals in WGS84 coordinates. Icons,
-colors, labels, clustering, camera state, and rendering policy belong to the
-application. Position-absent tracks produce no geographic feature; they stay
-visible through snapshots and are upserted when a first valid position
-arrives. Weather features come from a separate weather adapter; displaying
-both layers together is application composition, not a Surveillance concern.
+Position-absent tracks produce no geographic feature. The first valid
+position produces an upsert. Weather features come from a separate adapter.
+Pilotage combines both feature streams and owns the renderer binding.
 
 ## Host testing applications
 
-Feature-gated, application-layer tools make the library directly exercisable
-without ever burdening library consumers:
+An application-layer tool can exercise the library without adding host code
+to a library build:
 
 - a replay CLI that feeds recorded `ReceptionEvent` streams through the
-  engine and prints or records delta streams
-- a MapLibre-based viewer (macOS and web) driven by the GeoLibre adapter for
-  visual inspection of live or replayed traffic
+  engine and writes delta streams
 
-Both live behind opt-in features or separate application crates, follow the
-same pattern as `aero-link`'s `host` feature, and may use Tokio, tracing,
-and sockets freely — none of which ever appear in core or adapter crates.
-When built as a plain library or a GeoLibre layer source, none of this code
-is compiled in.
+The tool lives behind an opt-in feature or in a separate application crate.
+It can use host-only dependencies. These dependencies do not occur in core or
+adapter crates. A plain library build does not compile the tool.
 
 ## Portability and dependencies
 

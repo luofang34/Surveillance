@@ -1,0 +1,23 @@
+[package]
+name = "surveillance-geojson"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "Renderer-neutral aircraft features from Surveillance track output"
+license = "MIT"
+
+[features]
+default = []
+geojson = ["dep:serde", "dep:serde_json", "dep:thiserror"]
+
+[dependencies]
+serde = { workspace = true, optional = true }
+serde_json = { version = "1.0", default-features = false, features = ["alloc", "float_roundtrip"], optional = true }
+surveillance-core = { version = "0.1.0", path = "../surveillance-core", default-features = false }
+thiserror = { workspace = true, optional = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+
+[lints]
+workspace = true
