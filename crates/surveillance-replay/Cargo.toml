@@ -1,0 +1,26 @@
+[package]
+name = "surveillance-replay"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "Replays recorded aviation receptions through Surveillance"
+license = "MIT"
+
+[features]
+default = []
+geojson = ["dep:surveillance-geojson", "surveillance-geojson/geojson"]
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true }
+getrandom = { workspace = true }
+serde_json = { workspace = true }
+surveillance-aero-link = { version = "0.1.0", path = "../surveillance-aero-link", default-features = false, features = ["std"] }
+surveillance-core = { version = "0.1.0", path = "../surveillance-core", default-features = false, features = ["std"] }
+surveillance-geojson = { version = "0.1.0", path = "../surveillance-geojson", default-features = false, optional = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[lints]
+workspace = true

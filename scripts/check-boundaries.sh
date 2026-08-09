@@ -43,4 +43,14 @@ if cargo tree --locked -p surveillance-geojson --no-default-features \
     fail 'the surveillance-geojson default build must not link serde_json; it is opt-in'
 fi
 
+# 5. Host replay policy and map encoding stay outside both portable library
+#    entry points.
+for package in surveillance surveillance-core; do
+    if cargo tree --locked -p "$package" --no-default-features \
+        --edges normal --prefix none \
+        | grep -qE '^(anyhow|clap|getrandom|surveillance-geojson|surveillance-replay|tracing|tracing-subscriber) '; then
+        fail "$package links a host replay or map dependency in its portable build"
+    fi
+done
+
 printf '%s\n' 'dependency boundaries hold'
