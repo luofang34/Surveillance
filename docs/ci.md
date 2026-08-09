@@ -77,13 +77,23 @@ has to be generated in account settings.
 
 ### Revision
 
-`ci/aero-link.ref` names the revision of `aero-link` to build against. It
-holds `main` by default, which means Surveillance CI tracks the dependency
-and reports a break as soon as one lands upstream. Writing a commit SHA into
-that file pins the build instead, which is worth doing while chasing an
-upstream regression. Either way the resolved commit is written to the job
-summary, so a failure can always be attributed to a specific dependency
-state.
+`ci/aero-link.ref` names the revision of `aero-link` to build against. The
+file holds one exact commit SHA and nothing else. The workflow removes all
+whitespace from it, so do not put a comment in the file.
+
+Pin the revision. Do not write `main` into the file. `aero-link` moves
+several times each day, and a build against `main` can then fail for a
+reason that is not in this repository. A pinned revision keeps a green run
+reproducible.
+
+Write a new SHA into the file when you must take an upstream change. Read
+the upstream change first. Then run `scripts/ci.sh` against that revision
+before you commit the new value. Check out `aero-link` at the revision in a
+separate directory for that test, because a local working tree can be many
+commits away from the revision CI uses.
+
+The workflow writes the resolved commit into the job summary. You can thus
+attribute a failure to a specific dependency state.
 
 Because the dependency is a path dependency, `--locked` builds fail when
 `aero-link` changes its manifest without a matching `Cargo.lock` update here.
