@@ -485,6 +485,62 @@ Determinism is therefore asserted at the stream boundary: the same recorded
 inputs, replayed through the same adapter, must produce a byte-identical
 delta stream.
 
+## How the radio reader reads a stream
+
+`surveillance-aero-link::replay` reads a recorded radio stream. It needs an
+I/O trait and a JSON decoder, so the `std` feature gates it and a portable
+build links neither.
+
+Each line holds one `ReceptionRecord`. The reader reads the declared schema
+version first. Then it decodes the event. This order is the reason the
+envelope exists. If this build does not support the version, the reader
+refuses the record and does not decode the payload. The payload can have a
+different structure in a different version. A bare event declares no version,
+and the reader refuses it as version zero.
+
+The reader also moves time forward. The engine expires a track only when its
+owner moves time forward, and a recorded arrival time is monotonic runtime
+time. After each reception the reader thus moves the engine to the largest
+arrival time it has read. A reader that only ingests gives a delta stream
+that no live run can give: no track coasts, no track expires, and the track
+table grows for the full length of the recording.
+
+One recording is one runtime clock. Receptions can arrive a little out of
+order, and the largest arrival time absorbs that. A reception older than the
+removal window is different. The engine would expire the track that reception
+makes before the next reception arrives, thus each following reception would
+make a track and lose it again. Such a step backwards is evidence of two
+recordings joined together, or of a damaged arrival time, so the reader
+stops.
+
+The reader divides a stream fault from a reception fault:
+
+- A line that does not decode makes the remainder of the recording
+  unreliable. The reader stops and gives the number of that line.
+- A schema version, or a radio band, that this build does not support is also
+  a stream fault. The recording holds input that is newer than the build. To
+  count such a reception would report a successful replay of one input source
+  that never arrived.
+- One traffic reception that names no target is a reception fault. The stream
+  stays correct. The reader counts the reception, gives the reason to the
+  caller, and continues. Many 1090 MHz frames name no target, so this path is
+  frequent, and the reason is what separates normal refusals from an upstream
+  change that refuses all of them.
+- A reception that carries no traffic is not a fault. Almost half of all
+  978 MHz receptions are ground uplinks, which carry weather and notices. The
+  reader counts them as skipped and reports no error. The caller does not
+  have to separate weather from a failure.
+
+The reader gives four counts: receptions consumed, observations produced,
+receptions skipped as not traffic, and receptions refused. The first count is
+always the sum of the other three. An error carries the same counts for the
+lines before the failure. The engine keeps the changes those lines applied,
+so the caller can report what it ingested before it stopped.
+
+A line has a maximum length. Two recordings joined without a newline between
+them make one line from two files, and a recording that stops in the middle
+of a line has no end. The limit keeps each read bounded.
+
 ## Testing strategy
 
 - Fixtures are captured `ReceptionEvent` values (aero-link's versioned

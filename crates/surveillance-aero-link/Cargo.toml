@@ -8,11 +8,15 @@ license = "MIT"
 
 [features]
 default = []
-std = ["aero-link/std", "surveillance-core/std", "thiserror/std"]
+# The recorded-stream reader needs an I/O trait and a JSON decoder, so it is
+# host-only. A portable build keeps the one-reception normalization and links
+# neither.
+std = ["aero-link/std", "dep:serde_json", "surveillance-core/std", "thiserror/std"]
 
 [dependencies]
 aero-link = { workspace = true }
 libm = { workspace = true }
+serde_json = { workspace = true, optional = true }
 surveillance-core = { version = "0.1.0", path = "../surveillance-core", default-features = false }
 thiserror = { workspace = true }
 
