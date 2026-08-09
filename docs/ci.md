@@ -26,9 +26,8 @@ The second pass adds `--all-features`. It compiles the host-only code, for
 example the recorded-stream reader in `surveillance-aero-link`.
 
 Keep the second pass. A feature gate removes a module from a build, and Cargo
-does not fail because of that. A test in a removed module then reports
-success, because no compiler read it. A gated test is only green when the
-second pass runs it.
+does not fail because of that. A test in a removed module reports success. No
+compiler reads it. Only the second pass runs a gated test.
 
 ## The private dependency
 

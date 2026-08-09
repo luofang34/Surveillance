@@ -1,24 +1,33 @@
 //! Driving the engine from a recorded reception stream.
 //!
 //! A recording holds one `ReceptionRecord` on each line. That record is a
-//! versioned envelope, so a reader examines the declared schema version
-//! before it decodes the event inside. A recording that declares a version
-//! this build does not support is refused, and its payload is never
-//! interpreted as a shape it may no longer have.
+//! versioned envelope. The reader examines the declared schema version, and
+//! then it decodes the event. This order is the reason the envelope exists.
+//! The reader refuses a record from a version that this build does not
+//! support, and it does not decode the payload of that record. The payload
+//! can have a different structure in a different version.
 //!
 //! The reader keeps the traffic-only contract of this crate. On 978 MHz most
 //! receptions are ground uplinks that carry weather and notices. Such a
-//! reception has no traffic projection, so the reader counts it as skipped
-//! and reports no error. Weather has no path into the engine.
+//! reception has no traffic projection. The reader counts it as skipped and
+//! reports no error, because a ground uplink is not a failure.
 //!
-//! A stream fault and a reception fault are different. A line that does not
-//! decode, or a record from an unsupported schema, makes the remainder of
-//! the recording untrustworthy, so the reader stops. A single traffic
-//! reception that names no target the adapter can normalize leaves the
-//! stream intact, so the reader counts it and continues.
+//! The reader also drives time. A recorded arrival time is monotonic runtime
+//! time, and the engine expires a track only when the caller moves time
+//! forward. A reader that ingests but never advances time gives a delta
+//! stream that no live run can produce: no track coasts, no track expires,
+//! and the track table grows for the full length of the recording.
+//!
+//! The reader divides a stream fault from a reception fault:
+//!
+//! - A line that does not decode, and a record from a schema or a band that
+//!   this build does not support, make the remainder of the recording
+//!   unreliable. The reader stops and names the line.
+//! - One traffic reception that names no target leaves the stream intact.
+//!   The reader counts it, reports the reason to the caller, and continues.
 
 #[cfg(feature = "std")]
-use std::io::BufRead;
+use std::io::{BufRead, Read};
 
 use aero_link::ReceptionEvent;
 #[cfg(feature = "std")]
@@ -31,6 +40,16 @@ use surveillance_core::{IngestError, SurveillanceEngine, TrackDelta};
 use thiserror::Error;
 
 use crate::{NormalizeError, normalize};
+
+#[cfg(test)]
+mod tests;
+
+/// Largest line the reader accepts, in bytes.
+///
+/// A recorded line holds one reception, which is far smaller than this. The
+/// limit stops a truncated recording, or two recordings joined without a
+/// newline between them, from becoming one unbounded read.
+pub const MAX_RECORD_LINE_BYTES: usize = 1 << 20;
 
 /// What one reception did to the engine.
 #[non_exhaustive]
@@ -84,8 +103,15 @@ impl ReplayCounts {
 /// Feed one decoded reception to the engine and report what it did.
 ///
 /// A reception that carries no traffic gives [`ReceptionOutcome::NotTraffic`]
-/// and not an error, because the caller must not have to tell weather apart
-/// from a genuine failure. Only the engine itself produces an error here.
+/// and not an error. A ground uplink is the normal input on 978 MHz, and the
+/// caller must not have to separate it from a genuine failure. Only the
+/// engine itself produces an error here.
+///
+/// This function applies no stream policy. It advances no time, and it treats
+/// every refusal alike. A caller that reads a live stream decides both, in
+/// the same way `replay_records` decides them for a recording. That reader
+/// needs an I/O trait, so the `std` feature gates it and this function stays
+/// available to a portable build.
 pub fn ingest_event(
     event: &ReceptionEvent,
     engine: &mut SurveillanceEngine,
@@ -102,95 +128,191 @@ pub fn ingest_event(
     Ok(ReceptionOutcome::Ingested)
 }
 
+/// Report whether a refusal ends the stream or only one reception.
+///
+/// A band this build cannot normalize is the same class of problem as a
+/// schema version it cannot interpret: the recording holds input that this
+/// build is older than. To count such a reception would report a successful
+/// replay that quietly dropped one whole input source. Every other refusal
+/// names one target the adapter cannot identify, which the next reception
+/// does not inherit.
+///
+/// A caller that reads a live stream through [`ingest_event`] applies the
+/// same rule with this function, so a live run and a replay agree.
+#[must_use]
+pub fn refusal_ends_the_stream(error: &NormalizeError) -> bool {
+    matches!(error, NormalizeError::UnsupportedPayload)
+}
+
 /// Read a newline-delimited stream of reception records and drive `engine`
 /// with the traffic in it.
 ///
-/// Each non-empty line must hold one JSON `ReceptionRecord`. The reader
-/// stops at the first line it cannot decode and at the first record from an
-/// unsupported schema, because the remainder of such a recording cannot be
-/// trusted. It also stops if the engine refuses an observation, because a
-/// full track table drops aircraft the caller asked to see.
+/// Each non-empty line must hold one JSON `ReceptionRecord`. `on_delta`
+/// receives every track delta, and `on_refusal` receives the line and the
+/// reason for each traffic reception the adapter refused. Refusals are normal
+/// on 1090 MHz, where frames that name no target still have a traffic
+/// projection, so the reason is what separates ordinary refusals from a
+/// change upstream that refuses everything.
+///
+/// Time moves forward with the recording. After each reception the reader
+/// advances the engine to the largest arrival time it has seen, so a
+/// recording produces the coasting and removal deltas that its length calls
+/// for. The reader never reads a clock.
 ///
 /// # Errors
 ///
-/// Returns [`ReplayError`] with the one-based line that caused the failure.
+/// Returns [`ReplayError`] with the one-based line that failed and the tally
+/// of the lines before it.
 #[cfg(feature = "std")]
-pub fn replay_records<R, F>(
-    stream: R,
+pub fn replay_records<R, F, G>(
+    mut stream: R,
     engine: &mut SurveillanceEngine,
     mut on_delta: F,
+    mut on_refusal: G,
 ) -> Result<ReplayCounts, ReplayError>
 where
     R: BufRead,
     F: FnMut(&TrackDelta),
+    G: FnMut(u64, &NormalizeError),
 {
     let mut counts = ReplayCounts::default();
+    let mut clock_micros = 0_u64;
+    let mut line = Vec::new();
     let mut line_number = 0_u64;
-    for line in stream.lines() {
+
+    loop {
+        line.clear();
         line_number = line_number.wrapping_add(1);
-        let line = line.map_err(|source| ReplayError::Read {
+        let fault = |kind| ReplayError {
             line: line_number,
-            source,
-        })?;
-        if line.trim().is_empty() {
+            counts,
+            kind,
+        };
+
+        if read_bounded_line(&mut stream, &mut line).map_err(fault)? == 0 {
+            return Ok(counts);
+        }
+        strip_terminator(&mut line);
+        if line.iter().all(u8::is_ascii_whitespace) {
             continue;
         }
-        let event = decode_event(line.as_bytes()).map_err(|source| ReplayError::Decode {
-            line: line_number,
-            source,
-        })?;
-        let outcome =
-            ingest_event(&event, engine, &mut on_delta).map_err(|source| ReplayError::Ingest {
-                line: line_number,
-                source,
-            })?;
+
+        let event = decode_event(&line).map_err(fault)?;
+        clock_micros = clock_micros.max(event.received_at_micros);
+        let outcome = ingest_event(&event, engine, &mut on_delta)
+            .map_err(|source| fault(ReplayFault::Ingest { source }))?;
+        if let ReceptionOutcome::Refused(error) = &outcome {
+            if refusal_ends_the_stream(error) {
+                return Err(fault(ReplayFault::UnsupportedBand { source: *error }));
+            }
+            on_refusal(line_number, error);
+        }
         counts.record(&outcome);
+        engine.advance_time(clock_micros, &mut on_delta);
     }
-    Ok(counts)
+}
+
+/// Read one line, refusing a line longer than [`MAX_RECORD_LINE_BYTES`].
+///
+/// Returns the number of bytes read, thus zero at the end of the stream.
+#[cfg(feature = "std")]
+fn read_bounded_line(stream: &mut impl BufRead, line: &mut Vec<u8>) -> Result<usize, ReplayFault> {
+    let limit = MAX_RECORD_LINE_BYTES as u64;
+    let read = stream
+        .take(limit.wrapping_add(1))
+        .read_until(b'\n', line)
+        .map_err(|source| ReplayFault::Read { source })?;
+    if line.len() > MAX_RECORD_LINE_BYTES {
+        return Err(ReplayFault::LineTooLong {
+            limit: MAX_RECORD_LINE_BYTES,
+        });
+    }
+    Ok(read)
+}
+
+/// Remove the line terminator, which is `\n` or `\r\n`.
+#[cfg(feature = "std")]
+fn strip_terminator(line: &mut Vec<u8>) {
+    if line.last() == Some(&b'\n') {
+        line.pop();
+    }
+    if line.last() == Some(&b'\r') {
+        line.pop();
+    }
 }
 
 /// Decode one record in two phases, so an unsupported schema version is
-/// refused before Serde reads a payload whose shape may have changed.
+/// refused before Serde reads a payload whose structure may have changed.
+///
+/// Bytes that are not valid UTF-8 fail here rather than in the read, because
+/// a damaged record is a fault in the recording and not in the transport
+/// that supplied it.
 #[cfg(feature = "std")]
-fn decode_event(
-    line: &[u8],
-) -> Result<ReceptionEvent, ReceptionRecordDecodeError<serde_json::Error>> {
+fn decode_event(line: &[u8]) -> Result<ReceptionEvent, ReplayFault> {
     let record = decode_reception_record_with(
         line,
         serde_json::from_slice::<ReceptionRecordHeader>,
         serde_json::from_slice::<ReceptionRecord>,
-    )?;
-    Ok(record.into_event()?)
+    )
+    .map_err(|source| ReplayFault::Decode { source })?;
+    record.into_event().map_err(|error| ReplayFault::Decode {
+        source: ReceptionRecordDecodeError::Schema(error),
+    })
 }
 
 /// Failure reading a recorded reception stream.
+///
+/// The tally counts the lines before the failure. The engine keeps every
+/// change those lines already applied, so a caller can report what it
+/// ingested before it stopped.
+#[cfg(feature = "std")]
+#[derive(Debug, Error)]
+#[error("the recorded reception stream failed on line {line}")]
+pub struct ReplayError {
+    /// One-based position of the line that failed.
+    pub line: u64,
+    /// Tally of the lines read before this one.
+    pub counts: ReplayCounts,
+    /// What made the stream stop.
+    #[source]
+    pub kind: ReplayFault,
+}
+
+/// What made a recorded reception stream stop.
 #[cfg(feature = "std")]
 #[non_exhaustive]
 #[derive(Debug, Error)]
-pub enum ReplayError {
+pub enum ReplayFault {
     /// The stream could not supply a line.
-    #[error("could not read line {line} of the recorded stream")]
+    #[error("the stream could not supply the line")]
     Read {
-        /// One-based position of the line in the stream.
-        line: u64,
         /// Failure reported by the stream.
         #[source]
         source: std::io::Error,
     },
-    /// A line does not hold a reception record this build can interpret.
-    #[error("line {line} of the recorded stream is not a supported reception record")]
+    /// The line is longer than one reception record can be.
+    #[error("the line is longer than the {limit} byte limit for one record")]
+    LineTooLong {
+        /// Value of [`MAX_RECORD_LINE_BYTES`].
+        limit: usize,
+    },
+    /// The line does not hold a reception record this build can interpret.
+    #[error("the line is not a supported reception record")]
     Decode {
-        /// One-based position of the line in the stream.
-        line: u64,
         /// Failure reported by the record decoder.
         #[source]
         source: ReceptionRecordDecodeError<serde_json::Error>,
     },
+    /// The record names a band this build does not normalize.
+    #[error("the record names a band this build does not normalize")]
+    UnsupportedBand {
+        /// Refusal reported by the adapter.
+        #[source]
+        source: NormalizeError,
+    },
     /// The engine refused an observation the adapter normalized.
-    #[error("the engine refused the observation from line {line}")]
+    #[error("the engine refused the observation")]
     Ingest {
-        /// One-based position of the line in the stream.
-        line: u64,
         /// Failure reported by the engine.
         #[source]
         source: IngestError,
