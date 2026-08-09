@@ -29,8 +29,9 @@ binding rules for anyone implementing against that design.
   identity and a revision. `TrackDelta` and each handle use one versioned
   schema with golden round-trip fixtures.
 - `surveillance-geojson` maps track output to typed aircraft features. Its
-  GeoJSON serialization is optional. A planned replay CLI is separate from
-  library builds.
+  GeoJSON serialization is optional.
+- `surveillance-replay` is a separate host application. It converts recorded
+  receptions into track or GeoJSON streams.
 
 ## Workspace
 
@@ -42,9 +43,11 @@ binding rules for anyone implementing against that design.
   into canonical observations.
 - `crates/surveillance-geojson` — maps track deltas to renderer-neutral
   aircraft feature changes. GeoJSON encoding is an opt-in feature.
+- `crates/surveillance-replay` — replays newline-delimited reception records.
+  It is separate from default library builds. See the
+  [replay guide](docs/replay.md).
 
-Planned output adapters and host testing tools are tracked in the repository
-issues.
+Planned output adapters are tracked in the repository issues.
 
 ## Checks
 

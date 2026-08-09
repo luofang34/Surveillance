@@ -11,16 +11,22 @@ members = [
     "crates/surveillance-aero-link",
     "crates/surveillance-core",
     "crates/surveillance-geojson",
+    "crates/surveillance-replay",
 ]
 default-members = ["."]
 resolver = "3"
 
 [workspace.dependencies]
 aero-link = { path = "../aero-link", default-features = false }
+anyhow = "1.0"
+clap = { version = "4.6", features = ["derive"] }
+getrandom = "0.4"
 libm = "0.2"
 serde = { version = "1.0", default-features = false, features = ["alloc", "derive"] }
 serde_json = { version = "1.0", features = ["float_roundtrip"] }
 thiserror = { version = "2.0", default-features = false }
+tracing = "0.1"
+tracing-subscriber = "0.3"
 
 [workspace.lints.rust]
 missing_docs = "deny"
