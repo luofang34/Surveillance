@@ -5,7 +5,7 @@ use crate::engine::tests::{ICAO, PRODUCER, advance, engine, ingest, observation}
 use crate::engine::{
     EngineConfig, FieldDisposition, PositionDisposition, PositionRejection, SurveillanceEngine,
 };
-use crate::observation::{ObservationOrigin, PositionObservation, Wgs84Position};
+use crate::observation::{ObservationOrigin, ObservationTime, PositionObservation, Wgs84Position};
 use crate::source::Band;
 use crate::track::TrackDelta;
 
@@ -77,6 +77,34 @@ fn a_complete_pair_gives_the_track_its_first_position() {
         ObservationOrigin::AdsbDirect {
             band: Band::Adsb1090
         }
+    );
+}
+
+#[test]
+fn cpr_pair_age_uses_reception_time() {
+    let received_at_micros = 100_000_000;
+    let mut odd = cpr_observation(received_at_micros, ODD);
+    odd.time = ObservationTime::mapped(received_at_micros, 0, 0);
+    let mut even = cpr_observation(received_at_micros + 1_000, EVEN);
+    even.time = ObservationTime::mapped(
+        received_at_micros + 1_000,
+        engine().config().cpr.max_pair_age_micros + 1,
+        0,
+    );
+
+    let mut engine = engine();
+    ingest(&mut engine, odd);
+    let outcome = engine
+        .ingest(even, |_| {})
+        .expect("the close receptions form a valid pair");
+
+    assert!(matches!(outcome.position, PositionDisposition::Applied(_)));
+    assert!(
+        engine
+            .snapshot(ICAO)
+            .expect("track exists")
+            .position
+            .is_some()
     );
 }
 
@@ -170,6 +198,37 @@ fn an_implausible_decoded_position_is_rejected() {
     let snapshot = engine.snapshot(ICAO).expect("track exists");
     let position = snapshot.position.as_ref().expect("position retained");
     assert_near(position.value, TRUTH);
+}
+
+#[test]
+fn position_travel_time_uses_reception_time() {
+    let mut engine = engine();
+    let mut first = observation(
+        0,
+        ICAO,
+        ObservationOrigin::AdsbDirect { band: Band::Uat978 },
+    );
+    first.position = Some(PositionObservation::Decoded(Wgs84Position {
+        latitude_deg: 0.0,
+        longitude_deg: 0.0,
+    }));
+    ingest(&mut engine, first);
+
+    let mut later = observation(
+        300_000_000,
+        ICAO,
+        ObservationOrigin::AdsbDirect { band: Band::Uat978 },
+    );
+    later.time = ObservationTime::mapped(300_000_000, 1, 0);
+    later.position = Some(PositionObservation::Decoded(Wgs84Position {
+        latitude_deg: 1.0,
+        longitude_deg: 0.0,
+    }));
+    let outcome = engine
+        .ingest(later, |_| {})
+        .expect("the observation is valid");
+
+    assert!(matches!(outcome.position, PositionDisposition::Applied(_)));
 }
 
 #[test]

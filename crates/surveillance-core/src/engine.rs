@@ -186,13 +186,16 @@ impl SurveillanceEngine {
             meaningful = true;
         }
 
-        state.mark_identity_seen(observation.key, observation.time.received_at_micros);
+        let received_at = observation.time.received_at_micros;
+        let reception_advanced = received_at > state.last_received_at_micros;
+        state.last_received_at_micros = state.last_received_at_micros.max(received_at);
+        state.mark_identity_seen(observation.key, received_at);
         let observed_at = observation.time.observed_at_micros;
         if observed_at > state.snapshot.last_observed_at_micros {
             state.snapshot.last_observed_at_micros = observed_at;
             snapshot_changed = true;
         }
-        if state.snapshot.phase == TrackPhase::Coasting {
+        if reception_advanced && state.snapshot.phase == TrackPhase::Coasting {
             state.snapshot.phase = TrackPhase::Active;
             snapshot_changed = true;
             meaningful = true;

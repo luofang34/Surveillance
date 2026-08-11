@@ -50,6 +50,7 @@ impl SurveillanceEngine {
         self.next_id = self.next_id.wrapping_add(1);
         let mut snapshot =
             TrackSnapshot::new(id, observation.key, observation.time.received_at_micros);
+        snapshot.last_observed_at_micros = observation.time.observed_at_micros;
         snapshot.ownship_shadow = self.ownship.contains(&observation.key);
         self.tracks.insert(id, TrackState::from(snapshot));
         self.keys.insert(observation.key, id);

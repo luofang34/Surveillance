@@ -1,12 +1,12 @@
 //! Deterministic coasting and expiration.
 //!
-//! Lifecycle transitions are a pure function of each track's newest applied
-//! observation and the caller-supplied monotonic time. Nothing here reads a
+//! Lifecycle transitions are a pure function of each track's newest accepted
+//! reception and the caller-supplied monotonic time. Nothing here reads a
 //! clock or starts a timer, so an identical observation sequence replayed
 //! with identical `advance_time` calls produces an identical delta stream.
 //!
 //! Track age saturates at zero, so an `advance_time` call carrying a time
-//! earlier than a track's newest observation transitions nothing rather than
+//! earlier than a track's newest reception transitions nothing rather than
 //! aging it backwards.
 
 use alloc::collections::BTreeMap;
@@ -41,7 +41,7 @@ pub(crate) fn advance(
             on_delta(&delta);
         }
 
-        let age_micros = now_micros.saturating_sub(state.snapshot.last_observed_at_micros);
+        let age_micros = now_micros.saturating_sub(state.last_received_at_micros);
         if age_micros > policy.remove_after_micros {
             expired.push(*id);
         } else if age_micros > policy.coast_after_micros
@@ -70,7 +70,7 @@ pub(crate) fn advance(
 fn publication_count(state: &TrackState, now_micros: u64, config: &EngineConfig) -> u8 {
     let demotion =
         u8::from(silent_primary_successor(state, now_micros, &config.correlation).is_some());
-    let age_micros = now_micros.saturating_sub(state.snapshot.last_observed_at_micros);
+    let age_micros = now_micros.saturating_sub(state.last_received_at_micros);
     let lifecycle = u8::from(
         age_micros > config.freshness.remove_after_micros
             || (age_micros > config.freshness.coast_after_micros
@@ -106,7 +106,7 @@ fn silent_primary_successor(
     policy: &CorrelationPolicy,
 ) -> Option<TrackKey> {
     let primary = state.snapshot.identities.primary();
-    let primary_seen = state.identity_last_seen(primary).unwrap_or(0);
+    let primary_seen = state.identity_last_received(primary).unwrap_or(0);
     if now_micros.saturating_sub(primary_seen) <= policy.demote_after_micros {
         return None;
     }
@@ -116,7 +116,7 @@ fn silent_primary_successor(
         .identities
         .associated()
         .iter()
-        .filter_map(|key| state.identity_last_seen(*key).map(|seen| (seen, *key)))
+        .filter_map(|key| state.identity_last_received(*key).map(|seen| (seen, *key)))
         .filter(|(seen, _)| *seen > primary_seen)
         .max()
         .map(|(_, key)| key)

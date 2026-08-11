@@ -217,9 +217,9 @@ pub struct TrackSnapshot {
     /// Fused source-neutral emitter category.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub emitter_category: Option<TimedField<EmitterCategory>>,
-    /// Monotonic time the track was created.
+    /// Monotonic reception time when the engine created the track.
     pub created_at_micros: u64,
-    /// Monotonic time of the newest applied observation.
+    /// Monotonic measurement time of the newest applied observation.
     pub last_observed_at_micros: u64,
 }
 
@@ -328,18 +328,21 @@ pub struct TrackState {
     pub(crate) cpr: CprHistory,
     pub(crate) correlation: Vec<CorrelationEvidence>,
     pub(crate) identity_activity: Vec<IdentityActivity>,
+    pub(crate) last_received_at_micros: u64,
     pub(crate) adsb_integrity: Option<TimedField<AdsbIntegrityDeclaration>>,
     pub(crate) adsb_position_integrity: Option<TimedField<AdsbPositionIntegrity>>,
 }
 
 impl From<TrackSnapshot> for TrackState {
     fn from(snapshot: TrackSnapshot) -> Self {
+        let last_received_at_micros = snapshot.created_at_micros;
         Self {
             snapshot,
             snapshot_revision: SnapshotRevision::new(0),
             cpr: CprHistory::default(),
             correlation: Vec::new(),
             identity_activity: Vec::new(),
+            last_received_at_micros,
             adsb_integrity: None,
             adsb_position_integrity: None,
         }
@@ -355,35 +358,36 @@ impl TrackState {
         )
     }
 
-    /// Record that `key` was just observed, so a track carrying several
-    /// identities knows which of them is still being fed.
-    pub(crate) fn mark_identity_seen(&mut self, key: TrackKey, at_micros: u64) {
+    /// Record that the engine received `key`, so a track with several
+    /// identities knows which identity still supplies receptions.
+    pub(crate) fn mark_identity_seen(&mut self, key: TrackKey, received_at_micros: u64) {
         for activity in &mut self.identity_activity {
             if activity.key == key {
-                activity.last_observed_at_micros = activity.last_observed_at_micros.max(at_micros);
+                activity.last_received_at_micros =
+                    activity.last_received_at_micros.max(received_at_micros);
                 return;
             }
         }
         self.identity_activity.push(IdentityActivity {
             key,
-            last_observed_at_micros: at_micros,
+            last_received_at_micros: received_at_micros,
         });
     }
 
-    /// When `key` was last observed, if ever.
-    pub(crate) fn identity_last_seen(&self, key: TrackKey) -> Option<u64> {
+    /// When the engine last received `key`, if ever.
+    pub(crate) fn identity_last_received(&self, key: TrackKey) -> Option<u64> {
         self.identity_activity
             .iter()
             .find(|activity| activity.key == key)
-            .map(|activity| activity.last_observed_at_micros)
+            .map(|activity| activity.last_received_at_micros)
     }
 }
 
-/// When one of a track's identities was last observed.
+/// When the engine last received one of a track's identities.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct IdentityActivity {
     pub(crate) key: TrackKey,
-    pub(crate) last_observed_at_micros: u64,
+    pub(crate) last_received_at_micros: u64,
 }
 
 /// One engine output.

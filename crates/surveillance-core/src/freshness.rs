@@ -140,9 +140,9 @@ pub struct FreshnessPolicy {
     /// Window during which an ADS-B integrity declaration can qualify a
     /// position message.
     pub integrity_fresh_micros: u64,
-    /// Age of the newest applied observation after which a track coasts.
+    /// Time since the newest accepted reception after which a track coasts.
     pub coast_after_micros: u64,
-    /// Age of the newest applied observation after which a track is removed.
+    /// Time since the newest accepted reception after which a track is removed.
     pub remove_after_micros: u64,
 }
 

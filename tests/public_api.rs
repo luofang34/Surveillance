@@ -189,11 +189,11 @@ fn a_simulated_source_is_tracked_like_any_other() {
     assert_eq!(position.provenance.origin, ObservationOrigin::Replay);
 }
 
-/// Liveness ages from measurement, not arrival. A provider reporting
-/// promptly about a stale moment must not hold a track Active on a position
-/// already past its coasting window.
+/// Track liveness follows reception time. Field age follows measurement time.
+/// A delayed provider can keep a track active without making an old field
+/// current.
 #[test]
-fn a_provider_with_honest_latency_coasts_on_measurement_time() {
+fn a_provider_with_honest_latency_keeps_the_track_active() {
     let mut engine = SurveillanceEngine::new(EngineConfig::default(), PRODUCER)
         .expect("default config is valid");
     let provider = SourceRef::new(4, 0, DeliveryPath::NetworkProvider);
@@ -224,15 +224,11 @@ fn a_provider_with_honest_latency_coasts_on_measurement_time() {
             .expect("time advance succeeds");
     }
 
-    assert!(
-        latency > coast_after,
-        "the scenario only means something when latency exceeds the coasting window"
-    );
-    assert!(
-        coasted,
-        "a track whose newest measurement is older than the coasting window must coast, \
-         however promptly the reports arrive"
-    );
+    assert!(latency > coast_after);
+    assert!(!coasted, "current receptions keep the track active");
+    let snapshot = engine.snapshot(key).expect("track stays available");
+    assert_eq!(snapshot.phase, surveillance::TrackPhase::Active);
+    assert_eq!(snapshot.last_observed_at_micros, 125_000_000 - latency);
 }
 
 /// Retention still applies to a source that will not say when it measured:

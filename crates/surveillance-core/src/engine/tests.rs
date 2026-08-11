@@ -19,6 +19,7 @@ mod integrity;
 mod lifecycle;
 mod position;
 mod publication;
+mod time;
 
 pub(super) const ICAO: TrackKey = TrackKey::new(AddressNamespace::Icao, 0x00AC_82EC);
 pub(super) const OTHER_ICAO: TrackKey = TrackKey::new(AddressNamespace::Icao, 0x0040_621D);

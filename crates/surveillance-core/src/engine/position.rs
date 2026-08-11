@@ -125,7 +125,7 @@ fn decode_airborne(
     frame: CprFrame,
     context: PositionContext<'_>,
 ) -> Result<Wgs84Position, CprDecodeError> {
-    state.cpr.record(frame, observation.time.observed_at_micros);
+    state.cpr.record(frame, observation.time.received_at_micros);
     match state.cpr.decode_global(context.cpr) {
         Err(CprDecodeError::PairIncomplete) => {
             let reference = established_position(state, observation, context)
@@ -176,13 +176,11 @@ fn validate_against_previous(
     let Some(previous) = state.snapshot.position.as_ref() else {
         return Ok(());
     };
-    // Travel is bounded by the interval between the two measurements. Using
-    // arrival here, or the pessimistic age that widens with uncertainty,
-    // would inflate the budget and admit exactly the implausible jumps the
-    // gate exists to refuse.
+    // Reception time is the shared monotonic clock across all input sources.
+    // Source measurement clocks cannot set a cross-source travel interval.
     let elapsed_micros = observation
         .time
-        .observed_at_micros
-        .saturating_sub(previous.observed_at_micros());
+        .received_at_micros
+        .saturating_sub(previous.time.received_at_micros);
     validate_range(candidate, previous.value, elapsed_micros, context.cpr)
 }
