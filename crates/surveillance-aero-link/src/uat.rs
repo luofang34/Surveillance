@@ -12,8 +12,8 @@ use aero_link::{
     UatMessage, UatReception,
 };
 use surveillance_core::{
-    AddressNamespace, Band, Callsign, ObservationOrigin, ObservationTime, PositionObservation,
-    Squawk, TrackKey, TrafficObservation, VelocityObservation, Wgs84Position,
+    AddressNamespace, Band, Callsign, EmitterCategory, ObservationOrigin, ObservationTime,
+    PositionObservation, Squawk, TrackKey, TrafficObservation, VelocityObservation, Wgs84Position,
 };
 
 use crate::NormalizeError;
@@ -125,7 +125,7 @@ fn apply_mode_status(
     observation: &mut TrafficObservation,
     mode_status: &ModeStatus,
 ) -> Result<(), NormalizeError> {
-    observation.emitter_category = Some(mode_status.emitter_category);
+    observation.emitter_category = emitter_category(mode_status.emitter_category);
     observation.emergency = Some(vocabulary::emergency_code(mode_status.emergency_status));
     observation.quality.nac_p = Some(mode_status.nac_p);
     observation.quality.nac_v = Some(mode_status.nac_v);
@@ -149,6 +149,42 @@ fn apply_mode_status(
     Ok(())
 }
 
+/// Convert the flat UAT emitter-category code.
+///
+/// Codes 1 through 7, 9 through 12, 14, and 15 identify aircraft. Codes 17
+/// and 18 identify surface vehicles. Codes 19 through 21 identify obstacle
+/// shapes. Codes 0, 8, 13, 16, and 22 through 39 supply no category.
+fn emitter_category(code: u8) -> Option<EmitterCategory> {
+    use EmitterCategory::{
+        ClusterObstacle, Glider, HeavyAircraft, HighPerformanceAircraft, HighVortexAircraft,
+        LargeAircraft, LightAircraft, LighterThanAir, LineObstacle, Parachutist, PointObstacle,
+        Rotorcraft, SmallAircraft, SpaceVehicle, SurfaceEmergencyVehicle, SurfaceServiceVehicle,
+        Ultralight, UncrewedAircraft,
+    };
+
+    match code {
+        1 => Some(LightAircraft),
+        2 => Some(SmallAircraft),
+        3 => Some(LargeAircraft),
+        4 => Some(HighVortexAircraft),
+        5 => Some(HeavyAircraft),
+        6 => Some(HighPerformanceAircraft),
+        7 => Some(Rotorcraft),
+        9 => Some(Glider),
+        10 => Some(LighterThanAir),
+        11 => Some(Parachutist),
+        12 => Some(Ultralight),
+        14 => Some(UncrewedAircraft),
+        15 => Some(SpaceVehicle),
+        17 => Some(SurfaceEmergencyVehicle),
+        18 => Some(SurfaceServiceVehicle),
+        19 => Some(PointObstacle),
+        20 => Some(ClusterObstacle),
+        21 => Some(LineObstacle),
+        _ => None,
+    }
+}
+
 fn apply_altitude(observation: &mut TrafficObservation, altitude: Option<Altitude>) {
     let Some(altitude) = altitude else {
         return;
@@ -156,5 +192,26 @@ fn apply_altitude(observation: &mut TrafficObservation, altitude: Option<Altitud
     match altitude.kind {
         AltitudeKind::Barometric => observation.pressure_altitude_ft = Some(altitude.feet),
         AltitudeKind::Geometric => observation.geometric_altitude_ft = Some(altitude.feet),
+    }
+}
+
+#[cfg(test)]
+mod emitter_category_tests {
+    use super::*;
+
+    #[test]
+    fn maps_uat_aircraft_vehicle_and_obstacle_codes() {
+        assert_eq!(emitter_category(1), Some(EmitterCategory::LightAircraft));
+        assert_eq!(emitter_category(9), Some(EmitterCategory::Glider));
+        assert_eq!(
+            emitter_category(17),
+            Some(EmitterCategory::SurfaceEmergencyVehicle)
+        );
+        assert_eq!(emitter_category(19), Some(EmitterCategory::PointObstacle));
+        assert_eq!(emitter_category(20), Some(EmitterCategory::ClusterObstacle));
+        assert_eq!(emitter_category(21), Some(EmitterCategory::LineObstacle));
+        for reserved in [0, 8, 13, 16, 22, 39] {
+            assert_eq!(emitter_category(reserved), None, "for code {reserved}");
+        }
     }
 }

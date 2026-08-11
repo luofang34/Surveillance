@@ -43,9 +43,9 @@ pub use freshness::{FieldProvenance, FieldQuality, FreshnessPolicy, TimedField};
 pub use fusion::{FieldUpdate, fuse, origin_rank};
 pub use identity::IdentitySet;
 pub use observation::{
-    AirGroundState, AirspeedKind, Callsign, CallsignKind, EmergencyState, HeadingReference,
-    InvalidSquawk, ObservationOrigin, ObservationTime, PositionObservation, Squawk, TimeBasis,
-    TrafficObservation, VelocityObservation, VerticalRateSource, Wgs84Position,
+    AirGroundState, AirspeedKind, Callsign, CallsignKind, EmergencyState, EmitterCategory,
+    HeadingReference, InvalidSquawk, ObservationOrigin, ObservationTime, PositionObservation,
+    Squawk, TimeBasis, TrafficObservation, VelocityObservation, VerticalRateSource, Wgs84Position,
 };
 pub use schema::{
     CURRENT_TRACK_SCHEMA_VERSION, TimeCorrespondence, TrackRecord, TrackRecordHeader,

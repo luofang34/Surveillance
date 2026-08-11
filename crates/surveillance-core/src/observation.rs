@@ -22,7 +22,7 @@ use crate::source::SourceRef;
 use crate::track::TrackKey;
 
 pub use origin::ObservationOrigin;
-pub use status::{AirGroundState, CallsignKind, EmergencyState};
+pub use status::{AirGroundState, CallsignKind, EmergencyState, EmitterCategory};
 pub use time::{ObservationTime, TimeBasis};
 pub use velocity::{AirspeedKind, HeadingReference, VelocityObservation, VerticalRateSource};
 
@@ -62,10 +62,8 @@ pub struct TrafficObservation {
     pub air_ground: Option<AirGroundState>,
     /// Emergency or priority status reported by the target.
     pub emergency: Option<EmergencyState>,
-    /// Emitter category reported by an identification or mode-status
-    /// message, which is what resolves a non-ICAO ADS-B address into a
-    /// vehicle, obstacle, or aircraft.
-    pub emitter_category: Option<u8>,
+    /// Source-neutral emitter category reported by the target.
+    pub emitter_category: Option<EmitterCategory>,
     /// Integrity and accuracy indicators attached to this measurement.
     pub quality: FieldQuality,
 }

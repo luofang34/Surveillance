@@ -5,8 +5,8 @@ use aero_link::{
     ExtendedSquitterMessage, IcaoAddressStatus, ModeSMessage, TrafficProjection,
 };
 use surveillance_core::{
-    AddressNamespace, Band, Callsign, CprFormat, CprFrame, HeadingReference, ObservationOrigin,
-    ObservationTime, PositionObservation, Squawk, TrackKey, TrafficObservation,
+    AddressNamespace, Band, Callsign, CprFormat, CprFrame, EmitterCategory, HeadingReference,
+    ObservationOrigin, ObservationTime, PositionObservation, Squawk, TrackKey, TrafficObservation,
     VelocityObservation,
 };
 
@@ -135,7 +135,8 @@ fn apply_squitter(
     match &squitter.message {
         ExtendedSquitterMessage::Identification(identification) => {
             observation.callsign = Some(Callsign::new(identification.callsign.as_str()));
-            observation.emitter_category = Some(identification.emitter_category);
+            observation.emitter_category =
+                emitter_category(identification.type_code, identification.emitter_category);
         }
         ExtendedSquitterMessage::AirbornePosition(position) => {
             observation.position = Some(PositionObservation::CprAirborne(cpr_frame(
@@ -171,6 +172,42 @@ fn apply_squitter(
         _ => {}
     }
     Ok(())
+}
+
+/// Convert the 1090 ES category set selected by the type code.
+///
+/// Type code 4 selects aircraft set A. Type code 3 selects aircraft set B.
+/// Type code 2 selects surface and obstacle set C. Type code 1 selects the
+/// reserved set D. Zero and reserved category codes supply no category.
+fn emitter_category(type_code: u8, category: u8) -> Option<EmitterCategory> {
+    use EmitterCategory::{
+        ClusterObstacle, Glider, HeavyAircraft, HighPerformanceAircraft, HighVortexAircraft,
+        LargeAircraft, LightAircraft, LighterThanAir, LineObstacle, Parachutist, PointObstacle,
+        Rotorcraft, SmallAircraft, SpaceVehicle, SurfaceEmergencyVehicle, SurfaceServiceVehicle,
+        Ultralight, UncrewedAircraft,
+    };
+
+    match (type_code, category) {
+        (4, 1) => Some(LightAircraft),
+        (4, 2) => Some(SmallAircraft),
+        (4, 3) => Some(LargeAircraft),
+        (4, 4) => Some(HighVortexAircraft),
+        (4, 5) => Some(HeavyAircraft),
+        (4, 6) => Some(HighPerformanceAircraft),
+        (4, 7) => Some(Rotorcraft),
+        (3, 1) => Some(Glider),
+        (3, 2) => Some(LighterThanAir),
+        (3, 3) => Some(Parachutist),
+        (3, 4) => Some(Ultralight),
+        (3, 6) => Some(UncrewedAircraft),
+        (3, 7) => Some(SpaceVehicle),
+        (2, 1) => Some(SurfaceEmergencyVehicle),
+        (2, 2) => Some(SurfaceServiceVehicle),
+        (2, 3) => Some(PointObstacle),
+        (2, 4) => Some(ClusterObstacle),
+        (2, 5) => Some(LineObstacle),
+        _ => None,
+    }
 }
 
 fn apply_velocity(observation: &mut TrafficObservation, velocity: &aero_link::AirborneVelocity) {
@@ -269,5 +306,30 @@ fn cpr_frame(odd: bool, encoded_latitude: u32, encoded_longitude: u32) -> CprFra
         format,
         encoded_latitude,
         encoded_longitude,
+    }
+}
+
+#[cfg(test)]
+mod emitter_category_tests {
+    use super::*;
+
+    #[test]
+    fn maps_each_1090_category_set_independently() {
+        assert_eq!(emitter_category(4, 1), Some(EmitterCategory::LightAircraft));
+        assert_eq!(emitter_category(3, 1), Some(EmitterCategory::Glider));
+        assert_eq!(
+            emitter_category(2, 1),
+            Some(EmitterCategory::SurfaceEmergencyVehicle)
+        );
+        assert_eq!(emitter_category(2, 3), Some(EmitterCategory::PointObstacle));
+        assert_eq!(
+            emitter_category(2, 4),
+            Some(EmitterCategory::ClusterObstacle)
+        );
+        assert_eq!(emitter_category(2, 5), Some(EmitterCategory::LineObstacle));
+        assert_eq!(emitter_category(1, 1), None, "set D is reserved");
+        assert_eq!(emitter_category(4, 0), None, "zero means no data");
+        assert_eq!(emitter_category(3, 5), None, "set B code 5 is reserved");
+        assert_eq!(emitter_category(2, 6), None, "set C code 6 is reserved");
     }
 }

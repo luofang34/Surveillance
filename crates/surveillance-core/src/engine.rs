@@ -22,12 +22,14 @@ use position::PositionContext;
 pub use publication::SnapshotPublicationError;
 use publication::SnapshotPublisher;
 
+mod classification;
 mod ingest;
 mod lifecycle;
 mod merge;
 mod outcome;
 mod position;
 mod publication;
+mod resolution;
 
 #[cfg(test)]
 mod tests;
@@ -112,7 +114,10 @@ impl SurveillanceEngine {
         observation: TrafficObservation,
         mut on_delta: impl FnMut(&TrackDelta),
     ) -> Result<IngestOutcome, IngestError> {
-        let (id, created) = self.resolve_track(&observation)?;
+        let classified_key = observation
+            .emitter_category
+            .and_then(|category| classification::classified_key(observation.key, category));
+        let (id, created) = self.resolve_track(&observation, classified_key)?;
         let policy = self.config.freshness;
         let context = PositionContext {
             freshness: &policy,
@@ -129,6 +134,12 @@ impl SurveillanceEngine {
         let position_result = position::apply(state, &observation, context);
         let mut snapshot_changed = field_outcomes.was_applied() || position_result.was_applied();
         let mut meaningful = field_outcomes.is_meaningful() || position_result.is_meaningful();
+
+        let classified_key = classification::apply(state, &observation, &self.ownship);
+        if classified_key.is_some() {
+            snapshot_changed = true;
+            meaningful = true;
+        }
 
         state.mark_identity_seen(observation.key, observation.time.received_at_micros);
         let observed_at = observation.time.observed_at_micros;
@@ -151,6 +162,10 @@ impl SurveillanceEngine {
             on_delta(&delta);
         } else if snapshot_changed {
             publisher.revise(state)?;
+        }
+
+        if let Some(key) = classified_key {
+            self.keys.insert(key, id);
         }
 
         if position_result.update != FieldUpdate::Rejected {
@@ -352,30 +367,6 @@ impl SurveillanceEngine {
             .values()
             .map(|state| state.handle(self.producer_instance_id))
     }
-
-    /// Find the existing track for an observation, or create one.
-    fn resolve_track(
-        &mut self,
-        observation: &TrafficObservation,
-    ) -> Result<(TrackId, bool), IngestError> {
-        if let Some(id) = self.keys.get(&observation.key) {
-            return Ok((*id, false));
-        }
-        if let Some(capacity) = self.config.max_tracks
-            && self.tracks.len() >= capacity
-        {
-            return Err(IngestError::TrackCapacityExceeded { capacity });
-        }
-
-        let id = TrackId::new(self.next_id);
-        self.next_id = self.next_id.wrapping_add(1);
-        let mut snapshot =
-            TrackSnapshot::new(id, observation.key, observation.time.received_at_micros);
-        snapshot.ownship_shadow = self.ownship.contains(&observation.key);
-        self.tracks.insert(id, TrackState::from(snapshot));
-        self.keys.insert(observation.key, id);
-        Ok((id, true))
-    }
 }
 
 /// Failure applying one observation.
@@ -388,6 +379,21 @@ pub enum IngestError {
     TrackCapacityExceeded {
         /// Configured [`EngineConfig::max_tracks`] bound.
         capacity: usize,
+    },
+    /// A wire identity and its emitter classification already select
+    /// different live tracks.
+    #[error(
+        "wire key {observed:?} selects {observed_id:?}, but classified key {classified:?} selects {classified_id:?}"
+    )]
+    IdentityClassificationConflict {
+        /// Unclassified wire key.
+        observed: TrackKey,
+        /// Key implied by the emitter category.
+        classified: TrackKey,
+        /// Track selected by the wire key.
+        observed_id: TrackId,
+        /// Track selected by the classified key.
+        classified_id: TrackId,
     },
     /// The key index selected a track state that is not present.
     #[error("track state {id:?} is missing")]

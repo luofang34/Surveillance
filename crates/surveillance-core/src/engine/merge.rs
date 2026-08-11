@@ -182,4 +182,7 @@ fn adopt_identity_fields(
     if let Some(emergency) = absorbed.emergency {
         fuse(&mut survivor.emergency, emergency, window);
     }
+    if let Some(emitter_category) = absorbed.emitter_category {
+        fuse(&mut survivor.emitter_category, emitter_category, window);
+    }
 }

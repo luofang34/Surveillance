@@ -111,7 +111,7 @@ fn a_direct_airborne_position_normalizes_to_an_icao_key_and_a_cpr_frame() {
 }
 
 #[test]
-fn an_identification_frame_supplies_a_callsign_and_emitter_category() {
+fn an_identification_frame_with_category_zero_supplies_only_a_callsign() {
     let observation = normalize_1090(DF17_IDENTIFICATION, 1_000).expect("frame normalizes");
 
     let callsign = observation.callsign.as_ref().expect("callsign decoded");
@@ -119,7 +119,10 @@ fn an_identification_frame_supplies_a_callsign_and_emitter_category() {
         !callsign.text.is_empty(),
         "a decoded identification carries a callsign"
     );
-    assert!(observation.emitter_category.is_some());
+    assert_eq!(
+        observation.emitter_category, None,
+        "category zero means that no category was reported"
+    );
     assert_eq!(
         observation.position, None,
         "an identification frame reports no position"
