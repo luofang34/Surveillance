@@ -35,6 +35,8 @@ pub(super) fn apply(
     let target = classified_key(observation.key, category)?;
     state.mark_identity_seen(target, observation.time.received_at_micros);
 
+    let wire_was_known = state.snapshot.identities.contains(observation.key);
+    state.snapshot.identities.associate(observation.key);
     let target_was_known = state.snapshot.identities.contains(target);
     state.snapshot.identities.associate(target);
     let primary = state.snapshot.identities.primary();
@@ -48,5 +50,5 @@ pub(super) fn apply(
     let shadow = is_ownship_shadow(&state.snapshot, ownship);
     let shadow_changed = state.snapshot.ownship_shadow != shadow;
     state.snapshot.ownship_shadow = shadow;
-    (!target_was_known || should_promote || shadow_changed).then_some(target)
+    (!wire_was_known || !target_was_known || should_promote || shadow_changed).then_some(target)
 }
