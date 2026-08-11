@@ -2,6 +2,7 @@
 set -eu
 
 ./scripts/check-boundaries.sh
+./scripts/check-source-size.sh
 cargo fmt --all -- --check
 
 # The portable build first: it is what a library consumer gets, and it is the
