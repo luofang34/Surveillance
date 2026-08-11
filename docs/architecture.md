@@ -203,11 +203,16 @@ agreements, dissociation needs a run of consecutive disagreements, and each
 resets the other's count. Callsign equality is never sufficient evidence for
 any merge.
 
-A pair that cannot be judged — one side has no fresh position — accumulates
-neither agreement nor disagreement, so an unobservable interval is never
-read as a mismatch. Correlation is evaluated only when a position is
-applied, which keeps a stream of identity-only receptions free of
-correlation cost.
+A pair that cannot be judged accumulates no evidence. Both tracks must have
+a fresh position, altitude, and ground speed. Correlation is evaluated only
+when a position is applied. Identity-only receptions have no correlation
+cost.
+
+Evidence has a maximum gap and a maximum total window. Each track retains no
+more than `CorrelationPolicy::max_candidate_peers` evidence records. An
+accepted position scans each live track once. The default track bound makes
+this work finite. The [capacity guide](capacity.md) gives the allocation model
+and a reference measurement.
 
 When correlation joins two tracks, the track a consumer has watched longest
 survives with its `TrackId`, absorbs the other's identities and fused fields

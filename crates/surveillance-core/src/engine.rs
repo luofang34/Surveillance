@@ -35,8 +35,14 @@ mod resolution;
 #[cfg(test)]
 mod tests;
 
+/// Default maximum number of live tracks.
+pub const DEFAULT_MAX_TRACKS: usize = 1_024;
+
+/// Default maximum number of retained track keys.
+pub const DEFAULT_MAX_TRACK_KEYS: usize = 4_096;
+
 /// Engine tuning supplied by the application.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 #[non_exhaustive]
 pub struct EngineConfig {
     /// Per-field freshness windows and track retention.
@@ -44,10 +50,25 @@ pub struct EngineConfig {
     /// Upper bound on concurrently maintained tracks, `None` for unbounded.
     /// Bounded configurations serve allocation-conscious targets.
     pub max_tracks: Option<usize>,
+    /// Upper bound on retained primary and associated track keys, `None` for
+    /// unbounded.
+    pub max_track_keys: Option<usize>,
     /// CPR pairing and position-plausibility limits.
     pub cpr: CprPolicy,
     /// Kinematic correlation thresholds and hysteresis.
     pub correlation: CorrelationPolicy,
+}
+
+impl Default for EngineConfig {
+    fn default() -> Self {
+        Self {
+            freshness: FreshnessPolicy::default(),
+            max_tracks: Some(DEFAULT_MAX_TRACKS),
+            max_track_keys: Some(DEFAULT_MAX_TRACK_KEYS),
+            cpr: CprPolicy::default(),
+            correlation: CorrelationPolicy::default(),
+        }
+    }
 }
 
 /// Authoritative mutable tracking state.
@@ -386,6 +407,13 @@ pub enum IngestError {
     #[error("track capacity {capacity} exhausted")]
     TrackCapacityExceeded {
         /// Configured [`EngineConfig::max_tracks`] bound.
+        capacity: usize,
+    },
+    /// The configured track-key bound cannot retain all keys for an
+    /// observation.
+    #[error("track-key capacity {capacity} exhausted")]
+    TrackKeyCapacityExceeded {
+        /// Configured [`EngineConfig::max_track_keys`] bound.
         capacity: usize,
     },
     /// The next wrapped track identity still names a live track.
