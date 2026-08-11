@@ -358,6 +358,26 @@ and provenance (origin, namespace, source reference). Rules:
 - All lifecycle transitions are pure functions of observation content and
   the caller-supplied monotonic clock, which makes replay bit-reproducible.
 
+### Default freshness policy
+
+The default position and velocity window is 15 seconds. The default coast
+window is also 15 seconds. The FAA states that TIS-B position updates can
+take from 3 through 13 seconds. The 15-second value permits one normal
+13-second update interval and a 2-second margin. Direct ADS-B normally updates
+more frequently. An application can use a shorter window when it excludes
+slow sources.
+
+The default removal window is 60 seconds. This value permits four complete
+13-second update intervals and an 8-second margin. It retains a silent track
+for diagnosis without showing its position as current. The identity window
+is also 60 seconds. The ADS-B integrity declaration window is 5 seconds
+because it qualifies position messages from the same target and link.
+
+These values are library defaults. They are not an approval for an aircraft
+display. An approved application must set policy for its intended function.
+See the FAA [TIS-B description](https://www.faa.gov/air_traffic/publications/atpubs/aip_html/part2_enr_section_1.1.html)
+and [AC 20-172B](https://www.faa.gov/documentLibrary/media/Advisory_Circular/AC20-172B.pdf).
+
 ## Ownship shadows
 
 Ground infrastructure rebroadcasts ownship: an aircraft's own transmission
