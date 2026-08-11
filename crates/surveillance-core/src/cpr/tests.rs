@@ -85,6 +85,61 @@ fn the_newest_frame_selects_the_decoded_position() {
 }
 
 #[test]
+fn an_older_frame_cannot_replace_a_newer_frame_of_the_same_parity() {
+    let mut history = CprHistory::default();
+    history.record(ODD, 2_000);
+    history.record(
+        CprFrame {
+            format: CprFormat::Odd,
+            encoded_latitude: 1,
+            encoded_longitude: 1,
+        },
+        1_000,
+    );
+    history.record(EVEN, 1_500);
+
+    let position = history
+        .decode_global(&CprPolicy::default())
+        .expect("the retained new pair decodes");
+    assert_close(position.latitude_deg, 52.265_780, 1e-5, "latitude");
+    assert_close(position.longitude_deg, 3.938_913, 1e-5, "longitude");
+}
+
+#[test]
+fn equal_time_frames_have_an_order_independent_tie_break() {
+    let alternative = CprFrame {
+        format: CprFormat::Odd,
+        encoded_latitude: ODD.encoded_latitude - 1,
+        encoded_longitude: ODD.encoded_longitude,
+    };
+    let mut first = CprHistory::default();
+    first.record(ODD, 2_000);
+    first.record(alternative, 2_000);
+
+    let mut second = CprHistory::default();
+    second.record(alternative, 2_000);
+    second.record(ODD, 2_000);
+
+    assert_eq!(first, second);
+}
+
+#[test]
+fn equal_time_pair_selection_does_not_depend_on_arrival_order() {
+    let mut even_first = CprHistory::default();
+    even_first.record(EVEN, 2_000);
+    even_first.record(ODD, 2_000);
+
+    let mut odd_first = CprHistory::default();
+    odd_first.record(ODD, 2_000);
+    odd_first.record(EVEN, 2_000);
+
+    assert_eq!(
+        even_first.decode_global(&CprPolicy::default()),
+        odd_first.decode_global(&CprPolicy::default())
+    );
+}
+
+#[test]
 fn a_single_frame_cannot_decode_globally() {
     let mut history = CprHistory::default();
     history.record(EVEN, 1_000);
