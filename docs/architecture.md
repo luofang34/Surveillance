@@ -62,7 +62,7 @@ surveillance-core ---- no_std + alloc, source-neutral, depends on no decoder
         ^
         |------ surveillance-aero-link (adapter; depends on aero-link)
         |------ surveillance (umbrella re-export; adapter is opt-in)
-        |------ surveillance-gdl90     (planned: TrackSnapshot -> GDL 90 payloads)
+        |------ surveillance-gdl90     (TrackSnapshot -> GDL 90 payloads)
         |------ surveillance-geojson   (TrackDelta -> typed aircraft features)
         |------ host testing app       (planned: replay CLI; std/host gated)
 ```
@@ -79,6 +79,8 @@ surveillance-core ---- no_std + alloc, source-neutral, depends on no decoder
 - `surveillance-geojson` maps track output to renderer-neutral aircraft
   feature changes. Its optional `geojson` feature serializes these changes as
   RFC 7946 features.
+- `surveillance-gdl90` encodes one unframed GDL 90 Traffic Report in
+  caller-owned storage. It owns no transport, framing, or gateway state.
 - `scripts/check-boundaries.sh` enforces the split in CI.
 - `surveillance` is the umbrella package applications name in `Cargo.toml`.
   Its default features re-export exactly the portable core. Host-side testing

@@ -30,6 +30,8 @@ binding rules for anyone implementing against that design.
   schema with golden round-trip fixtures.
 - `surveillance-geojson` maps track output to typed aircraft features. Its
   GeoJSON serialization is optional.
+- `surveillance-gdl90` writes unframed GDL 90 Traffic Report payloads into
+  caller-owned storage. It has no transport or gateway state.
 - `surveillance-replay` is a separate host application. It converts recorded
   receptions into track or GeoJSON streams.
 
@@ -41,6 +43,8 @@ binding rules for anyone implementing against that design.
   CPR, fusion, freshness, and the exported schema. Depends on no link decoder.
 - `crates/surveillance-aero-link` — normalizes `aero-link` radio receptions
   into canonical observations.
+- `crates/surveillance-gdl90` — maps snapshots to unframed GDL 90 Traffic
+  Report payloads.
 - `crates/surveillance-geojson` — maps track deltas to renderer-neutral
   aircraft feature changes. GeoJSON encoding is an opt-in feature.
 - `crates/surveillance-replay` — replays newline-delimited reception records.
