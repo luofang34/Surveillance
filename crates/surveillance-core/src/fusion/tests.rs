@@ -30,6 +30,19 @@ fn field_with_quality(
     )
 }
 
+fn field_from_source(value: i32, at: u64, source: SourceRef) -> TimedField<i32> {
+    TimedField::new(
+        value,
+        ObservationTime::local(at),
+        FieldQuality::default(),
+        FieldProvenance::new(
+            ObservationOrigin::ModeSReply,
+            AddressNamespace::Icao,
+            source,
+        ),
+    )
+}
+
 #[test]
 fn the_target_outranks_rebroadcasts() {
     assert!(
@@ -194,6 +207,19 @@ fn an_equal_rank_duplicate_refreshes_without_changing_the_value() {
     let applied = slot.expect("value retained");
     assert_eq!(applied.value, 2);
     assert_eq!(applied.observed_at_micros(), 1_500);
+}
+
+#[test]
+fn a_source_handover_is_a_published_metadata_change() {
+    let first = SourceRef::new(1, 0, crate::DeliveryPath::LocalReceiver);
+    let second = SourceRef::new(2, 0, crate::DeliveryPath::LocalReceiver);
+    let mut slot = Some(field_from_source(2, 1_000, first));
+
+    assert_eq!(
+        fuse(&mut slot, field_from_source(2, 1_500, second), WINDOW),
+        FieldUpdate::MetadataChanged
+    );
+    assert_eq!(slot.expect("handover applied").provenance.source, second);
 }
 
 #[test]
@@ -363,6 +389,7 @@ fn a_stale_value_yields_to_a_lower_ranked_link_even_at_equal_time() {
 #[test]
 fn field_update_reports_meaningful_change() {
     assert!(FieldUpdate::Changed.is_meaningful());
+    assert!(FieldUpdate::MetadataChanged.is_meaningful());
     assert!(!FieldUpdate::Refreshed.is_meaningful());
     assert!(!FieldUpdate::Rejected.is_meaningful());
 }

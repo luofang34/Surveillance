@@ -115,7 +115,7 @@ fn a_changed_field_updates_and_a_duplicate_stays_silent() {
 }
 
 #[test]
-fn a_duplicate_from_another_receiver_refreshes_without_a_delta() {
+fn a_duplicate_from_another_receiver_publishes_the_source_handover() {
     let mut engine = engine();
     let mut first = observation(
         1_000,
@@ -130,7 +130,8 @@ fn a_duplicate_from_another_receiver_refreshes_without_a_delta() {
     let mut second = first;
     second.time = ObservationTime::local(1_500);
     second.source = receiver(2);
-    assert!(ingest(&mut engine, second).is_empty());
+    let deltas = ingest(&mut engine, second);
+    assert!(matches!(deltas.as_slice(), [TrackDelta::Updated(_)]));
 
     let snapshot = engine.snapshot(ICAO).expect("track exists");
     let altitude = snapshot
