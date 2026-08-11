@@ -161,11 +161,24 @@ impl TrackKey {
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TrackPhase {
-    /// Fresh observations are maintaining the track.
+    /// The engine received the track within the coast window.
     Active,
-    /// Defining fields lapsed their freshness windows; values are aging and
-    /// the track awaits reacquisition or removal.
+    /// The engine did not receive the track within the coast window.
     Coasting,
+}
+
+/// Freshness of the position independently from the track lifecycle.
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PositionStatus {
+    /// The track has no valid position.
+    #[default]
+    Unavailable,
+    /// The position is within the configured freshness window.
+    Current,
+    /// The engine retains a position outside the configured freshness window.
+    Stale,
 }
 
 /// Immutable consumer-facing state of one track.
@@ -193,6 +206,8 @@ pub struct TrackSnapshot {
     /// Fused WGS84 position.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub position: Option<TimedField<Wgs84Position>>,
+    /// Freshness of `position` independently from `phase`.
+    pub position_status: PositionStatus,
     /// Fused barometric pressure altitude in feet.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pressure_altitude_ft: Option<TimedField<i32>>,
@@ -235,6 +250,7 @@ impl TrackSnapshot {
             phase: TrackPhase::Active,
             ownship_shadow: false,
             position: None,
+            position_status: PositionStatus::Unavailable,
             pressure_altitude_ft: None,
             geometric_altitude_ft: None,
             velocity: None,

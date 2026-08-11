@@ -7,7 +7,7 @@ use crate::engine::{
 };
 use crate::observation::{ObservationOrigin, ObservationTime, PositionObservation, Wgs84Position};
 use crate::source::Band;
-use crate::track::TrackDelta;
+use crate::track::{PositionStatus, TrackDelta};
 
 const EVEN: CprFrame = CprFrame {
     format: CprFormat::Even,
@@ -57,6 +57,7 @@ fn a_single_cpr_frame_leaves_the_track_position_absent() {
         snapshot.position.is_none(),
         "one frame cannot decode a global position"
     );
+    assert_eq!(snapshot.position_status, PositionStatus::Unavailable);
 }
 
 #[test]
@@ -70,6 +71,7 @@ fn a_complete_pair_gives_the_track_its_first_position() {
         panic!("the first position must update, got {:?}", deltas[0]);
     };
     let position = snapshot.position.as_ref().expect("position applied");
+    assert_eq!(snapshot.position_status, PositionStatus::Current);
     assert_near(position.value, TRUTH);
     assert_eq!(position.observed_at_micros(), 2_000);
     assert_eq!(

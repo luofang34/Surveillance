@@ -1,8 +1,8 @@
 #![allow(clippy::expect_used, clippy::panic)]
 
 use crate::track::{
-    AddressNamespace, ProducerInstanceId, RemovalReason, SnapshotRevision, TrackDelta, TrackId,
-    TrackKey, TrackPhase, TrackSnapshot, TrackSnapshotHandle,
+    AddressNamespace, PositionStatus, ProducerInstanceId, RemovalReason, SnapshotRevision,
+    TrackDelta, TrackId, TrackKey, TrackPhase, TrackSnapshot, TrackSnapshotHandle,
 };
 
 #[test]
@@ -31,6 +31,7 @@ fn a_new_snapshot_is_active_and_position_absent() {
     assert_eq!(snapshot.phase, TrackPhase::Active);
     assert!(!snapshot.ownship_shadow);
     assert_eq!(snapshot.position, None);
+    assert_eq!(snapshot.position_status, PositionStatus::Unavailable);
     assert_eq!(snapshot.created_at_micros, 42_000);
     assert_eq!(snapshot.last_observed_at_micros, 42_000);
 }

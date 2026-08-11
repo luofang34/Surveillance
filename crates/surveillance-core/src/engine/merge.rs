@@ -140,11 +140,14 @@ fn adopt_fields(
     freshness: &FreshnessPolicy,
 ) {
     if let Some(position) = absorbed.position {
-        fuse(
+        let update = fuse(
             &mut survivor.position,
             position,
             freshness.position_fresh_micros,
         );
+        if update.was_applied() {
+            survivor.position_status = absorbed.position_status;
+        }
     }
     if let Some(altitude) = absorbed.pressure_altitude_ft {
         fuse(

@@ -57,6 +57,6 @@ pub use schema::{
 };
 pub use source::{Band, DeliveryPath, SourceRef};
 pub use track::{
-    AddressNamespace, ProducerInstanceId, RemovalReason, SnapshotRevision, TrackDelta, TrackId,
-    TrackKey, TrackPhase, TrackSnapshot, TrackSnapshotHandle, TrackState,
+    AddressNamespace, PositionStatus, ProducerInstanceId, RemovalReason, SnapshotRevision,
+    TrackDelta, TrackId, TrackKey, TrackPhase, TrackSnapshot, TrackSnapshotHandle, TrackState,
 };

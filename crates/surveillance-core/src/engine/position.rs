@@ -19,7 +19,7 @@ use crate::engine::{FieldDisposition, PositionDisposition, PositionRejection};
 use crate::freshness::FreshnessPolicy;
 use crate::fusion::{FieldUpdate, fuse};
 use crate::observation::{PositionObservation, TrafficObservation, Wgs84Position};
-use crate::track::TrackState;
+use crate::track::{PositionStatus, TrackState};
 
 /// Everything the position path needs beyond the observation itself.
 #[derive(Clone, Copy, Debug)]
@@ -70,11 +70,17 @@ pub(crate) fn apply(
         timed_with_quality(observation, candidate, quality),
         context.freshness.position_fresh_micros,
     );
-    PositionApply::from_update(update)
+    let status_changed =
+        update.was_applied() && state.snapshot.position_status != PositionStatus::Current;
+    if status_changed {
+        state.snapshot.position_status = PositionStatus::Current;
+    }
+    PositionApply::from_update(update, status_changed)
 }
 
 pub(crate) struct PositionApply {
     pub(crate) update: FieldUpdate,
+    status_changed: bool,
     pub(crate) disposition: PositionDisposition,
 }
 
@@ -82,6 +88,7 @@ impl PositionApply {
     fn not_supplied() -> Self {
         Self {
             update: FieldUpdate::Rejected,
+            status_changed: false,
             disposition: PositionDisposition::NotSupplied,
         }
     }
@@ -94,11 +101,12 @@ impl PositionApply {
         };
         Self {
             update: FieldUpdate::Rejected,
+            status_changed: false,
             disposition,
         }
     }
 
-    fn from_update(update: FieldUpdate) -> Self {
+    fn from_update(update: FieldUpdate, status_changed: bool) -> Self {
         let disposition = if update == FieldUpdate::Rejected {
             PositionDisposition::Rejected(PositionRejection::FusionPrecedence)
         } else {
@@ -106,6 +114,7 @@ impl PositionApply {
         };
         Self {
             update,
+            status_changed,
             disposition,
         }
     }
@@ -115,7 +124,7 @@ impl PositionApply {
     }
 
     pub(crate) fn is_meaningful(&self) -> bool {
-        self.update.is_meaningful()
+        self.update.is_meaningful() || self.status_changed
     }
 }
 

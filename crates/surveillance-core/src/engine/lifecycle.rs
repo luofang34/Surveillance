@@ -15,10 +15,12 @@ use alloc::vec::Vec;
 use crate::association::{CorrelationPolicy, forget_peer};
 use crate::engine::EngineConfig;
 use crate::engine::publication::{SnapshotPublicationError, SnapshotPublisher};
-use crate::track::{RemovalReason, TrackDelta, TrackId, TrackKey, TrackPhase, TrackState};
+use crate::freshness::FreshnessPolicy;
+use crate::track::{
+    PositionStatus, RemovalReason, TrackDelta, TrackId, TrackKey, TrackPhase, TrackState,
+};
 
-/// Apply demotion, coasting, and removal at `now_micros`, emitting one delta
-/// per transition in [`TrackId`] order.
+/// Apply demotion, position freshness, coasting, and removal at `now_micros`.
 pub(crate) fn advance(
     tracks: &mut BTreeMap<TrackId, TrackState>,
     keys: &mut BTreeMap<TrackKey, TrackId>,
@@ -42,13 +44,24 @@ pub(crate) fn advance(
         }
 
         let age_micros = now_micros.saturating_sub(state.last_received_at_micros);
-        if age_micros > policy.remove_after_micros {
+        let expires = age_micros > policy.remove_after_micros;
+        let starts_coasting =
+            age_micros > policy.coast_after_micros && state.snapshot.phase == TrackPhase::Active;
+        let position_stales = position_becomes_stale(state, now_micros, policy);
+
+        if expires {
             expired.push(*id);
-        } else if age_micros > policy.coast_after_micros
-            && state.snapshot.phase == TrackPhase::Active
-        {
+            continue;
+        }
+        if position_stales {
+            state.snapshot.position_status = PositionStatus::Stale;
+        }
+        if starts_coasting {
             state.snapshot.phase = TrackPhase::Coasting;
             let delta = TrackDelta::Coasting(publisher.snapshot(state)?);
+            on_delta(&delta);
+        } else if position_stales {
+            let delta = TrackDelta::Updated(publisher.snapshot(state)?);
             on_delta(&delta);
         }
     }
@@ -71,12 +84,22 @@ fn publication_count(state: &TrackState, now_micros: u64, config: &EngineConfig)
     let demotion =
         u8::from(silent_primary_successor(state, now_micros, &config.correlation).is_some());
     let age_micros = now_micros.saturating_sub(state.last_received_at_micros);
-    let lifecycle = u8::from(
+    let lifecycle_or_position = u8::from(
         age_micros > config.freshness.remove_after_micros
             || (age_micros > config.freshness.coast_after_micros
-                && state.snapshot.phase == TrackPhase::Active),
+                && state.snapshot.phase == TrackPhase::Active)
+            || position_becomes_stale(state, now_micros, &config.freshness),
     );
-    demotion + lifecycle
+    demotion + lifecycle_or_position
+}
+
+fn position_becomes_stale(state: &TrackState, now_micros: u64, policy: &FreshnessPolicy) -> bool {
+    state.snapshot.position_status == PositionStatus::Current
+        && state
+            .snapshot
+            .position
+            .as_ref()
+            .is_some_and(|position| !position.is_fresh(now_micros, policy.position_fresh_micros))
 }
 
 /// Re-key a track whose primary identity has gone silent while another of its

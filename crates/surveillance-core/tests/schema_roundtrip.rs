@@ -10,19 +10,19 @@
 use surveillance_core::{
     AddressNamespace, AirGroundState, Band, CURRENT_TRACK_SCHEMA_VERSION, Callsign, CallsignKind,
     DeliveryPath, EmergencyState, FieldProvenance, FieldQuality, ObservationOrigin,
-    ObservationTime, ProducerInstanceId, RemovalReason, SnapshotRevision, SourceRef, Squawk,
-    TimeBasis, TimedField, TrackDelta, TrackId, TrackKey, TrackPhase, TrackRecord,
-    TrackRecordHeader, TrackSchemaError, TrackSnapshot, TrackSnapshotHandle, VelocityObservation,
-    VerticalRateSource, Wgs84Position,
+    ObservationTime, PositionStatus, ProducerInstanceId, RemovalReason, SnapshotRevision,
+    SourceRef, Squawk, TimeBasis, TimedField, TrackDelta, TrackId, TrackKey, TrackPhase,
+    TrackRecord, TrackRecordHeader, TrackSchemaError, TrackSnapshot, TrackSnapshotHandle,
+    VelocityObservation, VerticalRateSource, Wgs84Position,
 };
 
-const CREATED_FIXTURE: &str = include_str!("fixtures/track_v3_created.json");
+const CREATED_FIXTURE: &str = include_str!("fixtures/track_v4_created.json");
 /// A record written before origin, delivery, and time were separated.
 const SUPERSEDED_FIXTURE: &str = include_str!("fixtures/track_v1_created_superseded.json");
 /// A record written before snapshots carried publication metadata.
 const VERSION_2_FIXTURE: &str = include_str!("fixtures/track_v2_created.json");
 /// A non-radio record: the wire forms the ADS-B fixture never reaches.
-const PROVIDER_FIXTURE: &str = include_str!("fixtures/track_v3_provider.json");
+const PROVIDER_FIXTURE: &str = include_str!("fixtures/track_v4_provider.json");
 
 const KEY: TrackKey = TrackKey::new(AddressNamespace::Icao, 0x00AC_82EC);
 const TRACK_FILE_KEY: TrackKey = TrackKey::new(AddressNamespace::TisbTrackFile, 66);
@@ -49,6 +49,7 @@ fn fixture_record() -> TrackRecord {
         FieldQuality::new(Some(8), Some(9), None, Some(2)),
         adsb_provenance(),
     ));
+    snapshot.position_status = PositionStatus::Current;
     snapshot.pressure_altitude_ft = Some(TimedField::new(
         12_500,
         ObservationTime::local(1_500_000),
@@ -174,7 +175,7 @@ fn absent_fields_stay_absent_on_the_wire() {
 #[test]
 fn unsupported_versions_fail_with_a_typed_error() {
     let unsupported =
-        CREATED_FIXTURE.replacen("\"schema_version\": 3", "\"schema_version\": 99", 1);
+        CREATED_FIXTURE.replacen("\"schema_version\": 4", "\"schema_version\": 99", 1);
     let record: TrackRecord =
         serde_json::from_str(&unsupported).expect("payload shape still decodes");
 
@@ -239,6 +240,21 @@ fn a_version_2_record_is_refused_before_its_snapshot_is_interpreted() {
 }
 
 #[test]
+fn the_schema_before_position_status_is_refused_by_version() {
+    let prior = CREATED_FIXTURE.replacen("\"schema_version\": 4", "\"schema_version\": 3", 1);
+    let header: TrackRecordHeader =
+        serde_json::from_str(&prior).expect("the version header decodes without the payload");
+
+    assert_eq!(
+        header.validate().expect_err("the prior schema must reject"),
+        TrackSchemaError::UnsupportedVersion {
+            found: 3,
+            supported: CURRENT_TRACK_SCHEMA_VERSION,
+        }
+    );
+}
+
+#[test]
 fn a_removal_keeps_its_producer_and_revision_on_the_wire() {
     let record = TrackRecord::new(TrackDelta::Removed {
         producer_instance_id: ProducerInstanceId::new(11),
@@ -281,6 +297,7 @@ fn provider_record() -> TrackRecord {
         FieldQuality::new(Some(7), Some(8), None, Some(1)),
         provenance,
     ));
+    snapshot.position_status = PositionStatus::Stale;
     // A second source that would not say when it measured.
     snapshot.pressure_altitude_ft = Some(TimedField::new(
         31_000,

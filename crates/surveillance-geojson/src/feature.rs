@@ -1,8 +1,8 @@
 //! Typed aircraft feature changes.
 
 use surveillance_core::{
-    ProducerInstanceId, RemovalReason, SnapshotRevision, TimedField, TrackDelta, TrackId,
-    TrackSnapshot, TrackSnapshotHandle, Wgs84Position,
+    PositionStatus, ProducerInstanceId, RemovalReason, SnapshotRevision, TimedField, TrackDelta,
+    TrackId, TrackSnapshot, TrackSnapshotHandle, Wgs84Position,
 };
 
 #[cfg(test)]
@@ -144,11 +144,21 @@ impl AircraftFeature {
 #[must_use]
 pub fn map_track_delta(delta: &TrackDelta) -> Option<FeatureDelta> {
     match delta {
-        TrackDelta::Created(snapshot) | TrackDelta::Updated(snapshot) => map_upsert(snapshot),
-        TrackDelta::Coasting(snapshot) => snapshot.position.map(|_| FeatureDelta::Stale {
-            id: FeatureId::new(snapshot.producer_instance_id(), snapshot.id),
-            revision: snapshot.snapshot_revision(),
-        }),
+        TrackDelta::Created(snapshot) => {
+            if snapshot.position_status == PositionStatus::Current {
+                map_upsert(snapshot)
+            } else {
+                None
+            }
+        }
+        TrackDelta::Updated(snapshot) | TrackDelta::Coasting(snapshot) => {
+            match snapshot.position_status {
+                PositionStatus::Current => map_upsert(snapshot),
+                PositionStatus::Stale => Some(stale(snapshot)),
+                PositionStatus::Unavailable => None,
+                _ => None,
+            }
+        }
         TrackDelta::Removed {
             producer_instance_id,
             snapshot_revision,
@@ -161,6 +171,13 @@ pub fn map_track_delta(delta: &TrackDelta) -> Option<FeatureDelta> {
             transfer_to: transfer_target(*producer_instance_id, *reason),
         }),
         _ => None,
+    }
+}
+
+fn stale(snapshot: &TrackSnapshotHandle) -> FeatureDelta {
+    FeatureDelta::Stale {
+        id: FeatureId::new(snapshot.producer_instance_id(), snapshot.id),
+        revision: snapshot.snapshot_revision(),
     }
 }
 
