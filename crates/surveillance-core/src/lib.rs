@@ -52,8 +52,9 @@ pub use observation::{
     VelocityObservation, VerticalRateSource, Wgs84Position,
 };
 pub use schema::{
-    CURRENT_TRACK_SCHEMA_VERSION, TimeCorrespondence, TrackRecord, TrackRecordHeader,
-    TrackSchemaError,
+    CURRENT_TRACK_SCHEMA_VERSION, TimeCorrespondence, TimeCorrespondenceError, TrackRecord,
+    TrackRecordDecodeError, TrackRecordHeader, TrackSchemaError, TrackStreamHeader,
+    decode_track_record_with,
 };
 pub use source::{Band, DeliveryPath, SourceRef};
 pub use track::{

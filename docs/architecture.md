@@ -423,29 +423,32 @@ Their serialization is part of the core contract:
   request returns a new owned handle when the track state changes.
 - A removal delta carries the producer identity and its assigned revision.
 - A versioned envelope (`TrackRecord`, `CURRENT_TRACK_SCHEMA_VERSION`) wraps
-  every exported delta. Its fields are private; accessors validate the
-  version and return a typed error for unsupported versions before any
-  payload interpretation.
+  every exported delta. Its fields are private. A reader uses
+  `decode_track_record_with` to decode `TrackRecordHeader` and validate its
+  version before the format decoder reads the payload. An unsupported or
+  absent version returns a typed error.
 - Golden round-trip fixtures with bit-exact float values pin the schema.
   JSON consumers require a correctly rounded parser (`serde_json` with
   `float_roundtrip`); other formats must preserve IEEE-754 values exactly to
   claim compatibility.
 - Growth policy matches `aero-link`: growth-prone public enums are
-  `#[non_exhaustive]`; adding a variant is a compatible Rust extension but
-  requires a schema version bump when an older reader could encounter it;
-  removing or renaming fields or variants, changing units or meaning, or
-  changing Serde tagging always requires a version bump.
+  `#[non_exhaustive]`. An optional field addition is compatible only when
+  absence has a defined meaning and an older reader can ignore the field.
+  A new variant requires a version increase when an older reader can receive
+  it. A removal, rename, unit change, meaning change, type change, or tag
+  change always requires a version increase.
 - Every exported field keeps provenance a detail view can display:
   originating link and band, address namespace, `SourceRef`, and the
-  observation's monotonic time. A snapshot may additionally reference the
-  receptions that supplied its current position, altitude, velocity, and
-  identity, so an application can show the underlying frames from its own
-  recording without Surveillance storing them.
+  observation's monotonic time.
+- Core does not assign recorder-specific frame identifiers. A recorder uses
+  `SourceRef` and `received_at_micros` to locate an ingress instant. The
+  recorder adds its own sequence when several receptions have the same
+  source and time. It keeps that sequence outside the track schema. A durable
+  frame reference requires a schema version increase.
 - All exported times are runtime-monotonic microseconds in the one
   caller-supplied domain. A service exporting deltas off the
-  runtime attaches one monotonic-origin-to-UTC correspondence
-  (`TimeCorrespondence`) per stream at that boundary. The engine itself
-  never touches UTC.
+  runtime writes one `TrackStreamHeader` with one `TimeCorrespondence` before
+  the records. The engine itself never touches UTC.
 
 ## Output adapter boundaries
 

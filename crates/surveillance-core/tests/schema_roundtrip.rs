@@ -7,13 +7,16 @@
     clippy::field_reassign_with_default
 )]
 
+use core::cell::Cell;
+
 use surveillance_core::{
     AddressNamespace, AirGroundState, Band, CURRENT_TRACK_SCHEMA_VERSION, Callsign, CallsignKind,
     DeliveryPath, EmergencyState, FieldProvenance, FieldQuality, ObservationOrigin,
     ObservationTime, PositionStatus, ProducerInstanceId, RemovalReason, SnapshotRevision,
-    SourceRef, Squawk, TimeBasis, TimedField, TrackDelta, TrackId, TrackKey, TrackPhase,
-    TrackRecord, TrackRecordHeader, TrackSchemaError, TrackSnapshot, TrackSnapshotHandle,
-    VelocityObservation, VerticalRateSource, Wgs84Position,
+    SourceRef, Squawk, TimeBasis, TimeCorrespondence, TimedField, TrackDelta, TrackId, TrackKey,
+    TrackPhase, TrackRecord, TrackRecordDecodeError, TrackRecordHeader, TrackSchemaError,
+    TrackSnapshot, TrackSnapshotHandle, TrackStreamHeader, VelocityObservation, VerticalRateSource,
+    Wgs84Position, decode_track_record_with,
 };
 
 const CREATED_FIXTURE: &str = include_str!("fixtures/track_v4_created.json");
@@ -309,7 +312,7 @@ fn provider_record() -> TrackRecord {
             SourceRef::new(8, 0, DeliveryPath::Unspecified),
         ),
     ));
-    snapshot.last_observed_at_micros = 2_100_000;
+    snapshot.last_observed_at_micros = 2_500_000;
     TrackRecord::new(TrackDelta::Updated(TrackSnapshotHandle::new(
         ProducerInstanceId::new(12),
         SnapshotRevision::new(8),
@@ -357,4 +360,113 @@ fn a_mapped_time_keeps_its_uncertainty_through_a_round_trip() {
         !altitude.time.is_established(),
         "an unknown source time must not decode as an established one"
     );
+}
+
+#[test]
+fn the_two_phase_decoder_never_reads_an_unsupported_payload() {
+    let encoded = br#"{"schema_version":99,"delta":{"kind":"unknown"}}"#;
+    let payload_was_read = Cell::new(false);
+
+    let result = decode_track_record_with(
+        encoded,
+        serde_json::from_slice,
+        |bytes| -> Result<TrackRecord, serde_json::Error> {
+            payload_was_read.set(true);
+            serde_json::from_slice(bytes)
+        },
+    );
+
+    assert!(!payload_was_read.get());
+    assert!(matches!(
+        result,
+        Err(TrackRecordDecodeError::Schema(
+            TrackSchemaError::UnsupportedVersion {
+                found: 99,
+                supported: CURRENT_TRACK_SCHEMA_VERSION,
+            }
+        ))
+    ));
+}
+
+#[test]
+fn an_absent_version_is_rejected_before_payload_decode() {
+    let encoded = br#"{"delta":{"kind":"unknown"}}"#;
+    let payload_was_read = Cell::new(false);
+
+    let result = decode_track_record_with(
+        encoded,
+        serde_json::from_slice,
+        |bytes| -> Result<TrackRecord, serde_json::Error> {
+            payload_was_read.set(true);
+            serde_json::from_slice(bytes)
+        },
+    );
+
+    assert!(!payload_was_read.get());
+    assert!(matches!(
+        result,
+        Err(TrackRecordDecodeError::Schema(
+            TrackSchemaError::UnsupportedVersion {
+                found: 0,
+                supported: CURRENT_TRACK_SCHEMA_VERSION,
+            }
+        ))
+    ));
+}
+
+#[test]
+fn an_unknown_optional_field_is_a_compatible_addition() {
+    let mut value: serde_json::Value =
+        serde_json::from_str(CREATED_FIXTURE).expect("fixture JSON parses");
+    value.as_object_mut().expect("record is an object").insert(
+        "future_optional".to_owned(),
+        serde_json::json!({"value": 7}),
+    );
+    let encoded = serde_json::to_vec(&value).expect("extended record serializes");
+
+    let decoded =
+        decode_track_record_with(&encoded, serde_json::from_slice, serde_json::from_slice)
+            .expect("an older reader ignores an optional addition");
+    assert_eq!(decoded, fixture_record());
+}
+
+#[test]
+fn a_required_field_rename_is_an_incompatible_payload_change() {
+    let mut value: serde_json::Value =
+        serde_json::from_str(CREATED_FIXTURE).expect("fixture JSON parses");
+    let object = value.as_object_mut().expect("record is an object");
+    let delta = object.remove("delta").expect("fixture has a delta");
+    object.insert("renamed_delta".to_owned(), delta);
+    let encoded = serde_json::to_vec(&value).expect("changed record serializes");
+
+    let result = decode_track_record_with(&encoded, serde_json::from_slice, serde_json::from_slice);
+    assert!(matches!(result, Err(TrackRecordDecodeError::Record { .. })));
+}
+
+#[test]
+fn one_stream_correspondence_places_record_times_in_utc() {
+    let correspondence = TimeCorrespondence {
+        monotonic_micros: 2_000_000,
+        utc_unix_micros: 1_725_000_000_000_000,
+    };
+    let header = TrackStreamHeader::new(correspondence);
+    let record = provider_record();
+    let serialized_header = serde_json::to_value(header).expect("header serializes");
+    let serialized_record = serde_json::to_value(&record).expect("record serializes");
+
+    assert_eq!(
+        serialized_header["time_correspondence"]["monotonic_micros"],
+        2_000_000
+    );
+    assert!(serialized_record.get("time_correspondence").is_none());
+
+    let TrackDelta::Updated(snapshot) = record.into_delta().expect("current version") else {
+        panic!("the provider fixture is an update");
+    };
+    let utc = header
+        .time_correspondence()
+        .expect("current stream version")
+        .utc_unix_micros_at(snapshot.last_observed_at_micros)
+        .expect("UTC result is in range");
+    assert_eq!(utc, 1_725_000_000_500_000);
 }
