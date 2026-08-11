@@ -2,7 +2,10 @@
 
 use core::ops::Deref;
 
-use crate::observation::{AirGroundState, EmergencyState, EmitterCategory};
+use crate::observation::{
+    AdsbIntegrityDeclaration, AdsbPositionIntegrity, AirGroundState, EmergencyState,
+    EmitterCategory,
+};
 use serde::{Deserialize, Serialize};
 
 use alloc::vec::Vec;
@@ -325,6 +328,8 @@ pub struct TrackState {
     pub(crate) cpr: CprHistory,
     pub(crate) correlation: Vec<CorrelationEvidence>,
     pub(crate) identity_activity: Vec<IdentityActivity>,
+    pub(crate) adsb_integrity: Option<TimedField<AdsbIntegrityDeclaration>>,
+    pub(crate) adsb_position_integrity: Option<TimedField<AdsbPositionIntegrity>>,
 }
 
 impl From<TrackSnapshot> for TrackState {
@@ -335,6 +340,8 @@ impl From<TrackSnapshot> for TrackState {
             cpr: CprHistory::default(),
             correlation: Vec::new(),
             identity_activity: Vec::new(),
+            adsb_integrity: None,
+            adsb_position_integrity: None,
         }
     }
 }

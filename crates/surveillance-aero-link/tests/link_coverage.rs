@@ -11,7 +11,8 @@
 use aero_link::{Adsb1090Message, ReceiverSource, ReceptionEvent, SourceTransport};
 use surveillance_aero_link::{NormalizeError, normalize};
 use surveillance_core::{
-    AddressNamespace, Band, HeadingReference, ObservationOrigin, Squawk, TrafficObservation,
+    AddressNamespace, AdsbPositionKind, AdsbVersion, Band, HeadingReference, ObservationOrigin,
+    Squawk, TrafficObservation,
 };
 
 /// Mode S 24-bit parity over a message whose parity field is zero.
@@ -51,6 +52,17 @@ fn with_parity(payload: [u8; 11]) -> Vec<u8> {
 fn df18(control_field: u8, address: u32, message: [u8; 7]) -> Vec<u8> {
     let mut payload = [0_u8; 11];
     payload[0] = (18 << 3) | (control_field & 0x07);
+    payload[1] = (address >> 16) as u8;
+    payload[2] = (address >> 8) as u8;
+    payload[3] = address as u8;
+    payload[4..11].copy_from_slice(&message);
+    with_parity(payload)
+}
+
+/// A DF 17 frame with the given address and message element.
+fn df17(address: u32, message: [u8; 7]) -> Vec<u8> {
+    let mut payload = [0_u8; 11];
+    payload[0] = (17 << 3) | 5;
     payload[1] = (address >> 16) as u8;
     payload[2] = (address >> 8) as u8;
     payload[3] = address as u8;
@@ -178,6 +190,40 @@ fn an_anonymous_address_stays_unclassified_until_a_category_arrives() {
         ObservationOrigin::AdsbDirect {
             band: Band::Adsb1090
         }
+    );
+}
+
+#[test]
+fn operational_status_normalizes_a_versioned_integrity_declaration() {
+    let mut message = [0_u8; 7];
+    message[0] = 31 << 3;
+    message[5] = (2 << 5) | (1 << 4) | 9;
+    message[6] = 3 << 4;
+    let observation = observe(&df17(0x00AB_CDEF, message)).expect("status normalizes");
+
+    let declaration = observation.adsb_integrity.expect("declaration is present");
+    assert_eq!(declaration.version(), AdsbVersion::Do260B);
+    assert_eq!(declaration.nic_supplement_a_or_legacy(), Some(true));
+    assert_eq!(declaration.nac_p(), Some(9));
+    assert_eq!(declaration.sil(), Some(3));
+    assert_eq!(observation.position, None);
+}
+
+#[test]
+fn a_position_supplement_is_metadata_and_not_a_nic_value() {
+    let mut message = [0_u8; 7];
+    message[0] = (11 << 3) | 1;
+    let observation = observe(&df17(0x00AB_CDEF, message)).expect("position normalizes");
+
+    let integrity = observation
+        .adsb_position_integrity
+        .expect("position metadata is present");
+    assert_eq!(integrity.kind(), AdsbPositionKind::Airborne);
+    assert_eq!(integrity.type_code(), 11);
+    assert_eq!(integrity.nic_supplement_b(), Some(true));
+    assert_eq!(
+        observation.quality.nic, None,
+        "one supplement bit is not a NIC category"
     );
 }
 

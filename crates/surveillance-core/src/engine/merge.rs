@@ -17,6 +17,8 @@ use crate::track::{
     RemovalReason, TrackDelta, TrackId, TrackKey, TrackPhase, TrackSnapshot, TrackState,
 };
 
+use super::integrity;
+
 /// Which of two correlated tracks keeps its identity.
 ///
 /// The track a consumer has been watching longest survives; equal creation
@@ -68,6 +70,7 @@ pub(crate) fn merge(
         &absorbed_state.snapshot,
         freshness,
     );
+    integrity::adopt(survivor_state, &absorbed_state, freshness);
     survivor_state.snapshot.created_at_micros = survivor_state
         .snapshot
         .created_at_micros

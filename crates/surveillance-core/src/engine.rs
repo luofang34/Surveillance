@@ -24,6 +24,7 @@ use publication::SnapshotPublisher;
 
 mod classification;
 mod ingest;
+mod integrity;
 mod lifecycle;
 mod merge;
 mod outcome;
@@ -130,10 +131,17 @@ impl SurveillanceEngine {
         let publisher = SnapshotPublisher::new(self.producer_instance_id);
         publisher.ensure_capacity(state, 1)?;
 
-        let field_outcomes = ingest::apply_fields(&mut state.snapshot, &observation, &policy);
+        let integrity_result = integrity::apply(state, &observation, &policy);
+        let mut field_outcomes = ingest::apply_fields(&mut state.snapshot, &observation, &policy);
+        field_outcomes.adsb_integrity = integrity_result.declaration;
+        field_outcomes.adsb_position_integrity = integrity_result.position_code;
         let position_result = position::apply(state, &observation, context);
-        let mut snapshot_changed = field_outcomes.was_applied() || position_result.was_applied();
-        let mut meaningful = field_outcomes.is_meaningful() || position_result.is_meaningful();
+        let mut snapshot_changed = field_outcomes.was_applied()
+            || position_result.was_applied()
+            || integrity_result.position_metadata_changed;
+        let mut meaningful = field_outcomes.is_meaningful()
+            || position_result.is_meaningful()
+            || integrity_result.position_metadata_changed;
 
         let classified_key = classification::apply(state, &observation, &self.ownship);
         if classified_key.is_some() {

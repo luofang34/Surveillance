@@ -14,7 +14,7 @@ use crate::cpr::{
     AIRBORNE_DEGREES_PER_CYCLE, CprDecodeError, CprFrame, CprPolicy, SURFACE_DEGREES_PER_CYCLE,
     local, validate_range,
 };
-use crate::engine::ingest::timed;
+use crate::engine::ingest::timed_with_quality;
 use crate::engine::{FieldDisposition, PositionDisposition, PositionRejection};
 use crate::freshness::FreshnessPolicy;
 use crate::fusion::{FieldUpdate, fuse};
@@ -64,9 +64,10 @@ pub(crate) fn apply(
         return PositionApply::rejected(error);
     }
 
+    let quality = super::integrity::quality_for_position(state, observation, context.freshness);
     let update = fuse(
         &mut state.snapshot.position,
-        timed(observation, candidate),
+        timed_with_quality(observation, candidate, quality),
         context.freshness.position_fresh_micros,
     );
     PositionApply::from_update(update)
