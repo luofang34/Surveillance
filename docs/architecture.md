@@ -476,26 +476,20 @@ Position-absent tracks produce no geographic feature. The first valid
 position produces an upsert. Weather features come from a separate adapter.
 Pilotage combines both feature streams and owns the renderer binding.
 
-## Host testing applications
+## Host testing application
 
-An application-layer tool can exercise the library without adding host code
-to a library build:
-
-- a replay CLI that feeds recorded `ReceptionEvent` streams through the
-  engine and writes delta streams
-
-The tool lives behind an opt-in feature or in a separate application crate.
-It can use host-only dependencies. These dependencies do not occur in core or
-adapter crates. A plain library build does not compile the tool.
+`surveillance-replay` feeds versioned `ReceptionRecord` streams through the
+engine. It writes track records or GeoJSON feature changes. It uses host-only
+dependencies in a separate application crate. A plain library build does not
+compile the tool.
 
 ## Portability and dependencies
 
 - `surveillance-core` defaults to `no_std + alloc`; `std` is a forwarding
   feature only.
 - Core and adapters build for `wasm32-unknown-unknown` and the embedded
-  matrix (`thumbv6m`, `thumbv8m.main`, `riscv32imac`); the local check
-  scripts keep every target honest. Hosted CI mirroring aero-link#19 is
-  tracked in repository issues.
+  matrix (`thumbv6m`, `thumbv8m.main`, `riscv32imac`). Local checks and hosted
+  CI run the same target matrix.
 - `serde` is unconditional on exported schema types and their components;
   purely internal types keep it off.
 - Library error enums use `thiserror` with sources and context; `anyhow` is

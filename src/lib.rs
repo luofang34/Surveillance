@@ -9,7 +9,7 @@
 //! The engine accepts traffic from local radios, installed panels, network
 //! providers, replay, and simulation alike. Turning one radio reception into
 //! a canonical observation is an adapter's job: enable the `aero-link`
-//! feature for that, and a build that does not never links a decoder.
+//! feature for that. A build without this feature never links a decoder.
 //!
 //! The default build is `no_std + alloc`. Host-side testing tools and output
 //! adapters are separate, opt-in components. A library consumer does not

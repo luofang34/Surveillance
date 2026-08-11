@@ -319,6 +319,8 @@ dependencies = [
  "surveillance-aero-link",
  "surveillance-core",
  "surveillance-gdl90",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
