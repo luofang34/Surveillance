@@ -2,12 +2,12 @@
 
 use aero_link::{
     Adsb1090Message, AltitudeKind, ExtendedSquitter, ExtendedSquitterAddress,
-    ExtendedSquitterMessage, IcaoAddressStatus, ModeSMessage, TrafficProjection,
+    ExtendedSquitterMessage, IcaoAddressStatus, ModeSMessage, OperationalStatus, TrafficProjection,
 };
 use surveillance_core::{
-    AddressNamespace, Band, Callsign, CprFormat, CprFrame, EmitterCategory, HeadingReference,
-    ObservationOrigin, ObservationTime, PositionObservation, Squawk, TrackKey, TrafficObservation,
-    VelocityObservation,
+    AddressNamespace, AdsbIntegrityDeclaration, AdsbPositionIntegrity, AdsbVersion, Band, Callsign,
+    CprFormat, CprFrame, EmitterCategory, HeadingReference, ObservationOrigin, ObservationTime,
+    PositionObservation, Squawk, TrackKey, TrafficObservation, VelocityObservation,
 };
 
 use crate::NormalizeError;
@@ -145,11 +145,10 @@ fn apply_squitter(
                 position.cpr_longitude,
             )));
             apply_altitude(observation, position.altitude);
-            // NIC is not carried by the position message: deriving it needs
-            // the type code together with the NIC supplement bits, and the
-            // supplement alone is a single bit, not the category. Reporting
-            // the supplement as the category would fabricate a quality value
-            // that outranks a genuine absence during fusion.
+            observation.adsb_position_integrity = Some(AdsbPositionIntegrity::airborne(
+                position.type_code,
+                position.nic_supplement_b,
+            )?);
         }
         ExtendedSquitterMessage::SurfacePosition(position) => {
             observation.position = Some(PositionObservation::CprSurface(cpr_frame(
@@ -161,6 +160,8 @@ fn apply_squitter(
             velocity.ground_speed_kt = position.ground_speed_knots;
             velocity.track_angle_deg_true = position.ground_track_degrees;
             observation.velocity = Some(velocity);
+            observation.adsb_position_integrity =
+                Some(AdsbPositionIntegrity::surface(position.type_code)?);
         }
         ExtendedSquitterMessage::AirborneVelocity(velocity) => {
             apply_velocity(observation, velocity);
@@ -169,8 +170,36 @@ fn apply_squitter(
             observation.emergency = Some(vocabulary::emergency(status.emergency_state));
             observation.squawk = Some(Squawk::try_from(status.squawk)?);
         }
+        ExtendedSquitterMessage::OperationalStatus(status) => {
+            apply_operational_status(observation, *status)?;
+        }
         _ => {}
     }
+    Ok(())
+}
+
+fn apply_operational_status(
+    observation: &mut TrafficObservation,
+    status: OperationalStatus,
+) -> Result<(), NormalizeError> {
+    let (quality, nic_supplement_c) = match status {
+        OperationalStatus::Airborne(status) => (status.quality, None),
+        OperationalStatus::Surface(status) => {
+            (status.quality, status.capability_class.nic_supplement_c)
+        }
+    };
+    let (version, supplement) = match quality.version {
+        1 => (AdsbVersion::Do260A, quality.nic_supplement_legacy),
+        2 => (AdsbVersion::Do260B, quality.nic_supplement_a),
+        _ => return Ok(()),
+    };
+    observation.adsb_integrity = Some(AdsbIntegrityDeclaration::new(
+        version,
+        supplement,
+        nic_supplement_c,
+        quality.navigation_accuracy_category_position,
+        quality.source_integrity_level,
+    )?);
     Ok(())
 }
 

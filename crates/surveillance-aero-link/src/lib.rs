@@ -1,5 +1,5 @@
 //! Turning one borrowed `aero-link` traffic projection into a canonical
-//! [`TrafficObservation`].
+//! [`TrafficObservation`](surveillance_core::TrafficObservation).
 //!
 //! This crate is the seam between one radio reception and the source-neutral
 //! engine. `surveillance-core` knows nothing about `aero-link`, so a
@@ -22,72 +22,14 @@
 
 extern crate alloc;
 
-use aero_link::{TrafficPayload, TrafficProjection};
-use surveillance_core::{InvalidSquawk, TrafficObservation};
-use thiserror::Error;
-
 mod adsb1090;
+mod normalize;
 pub mod replay;
 mod source;
 mod uat;
 mod vocabulary;
 
+pub use normalize::{NormalizeError, normalize};
+
 #[cfg(test)]
 mod tests;
-
-/// Normalize one borrowed traffic projection.
-///
-/// Non-traffic receptions never reach this function: `ReceptionEvent::traffic`
-/// is `None` for them, so the caller skips ingestion entirely and engine state
-/// is untouched. That is the whole traffic-only contract — weather never has a
-/// path in.
-pub fn normalize(projection: &TrafficProjection<'_>) -> Result<TrafficObservation, NormalizeError> {
-    match projection.payload {
-        TrafficPayload::Adsb1090(message) => adsb1090::normalize(projection, message),
-        TrafficPayload::Uat978(reception) => uat::normalize(projection, reception),
-        _ => Err(NormalizeError::UnsupportedPayload),
-    }
-}
-
-/// Failure normalizing one traffic reception.
-#[non_exhaustive]
-#[derive(Clone, Copy, Debug, Eq, Error, PartialEq)]
-pub enum NormalizeError {
-    /// The reception carries no address that names a target.
-    #[error("downlink format {downlink_format} carries no target address")]
-    NoTargetIdentity {
-        /// Five-bit downlink format of the rejected frame.
-        downlink_format: u8,
-    },
-    /// The address was recovered from parity and no independent observation
-    /// has confirmed it.
-    ///
-    /// Accepting an unconfirmed candidate would create a track for an
-    /// address no receiver has actually seen announced, so the reception is
-    /// refused until confirmation arrives.
-    #[error("downlink format {downlink_format} has an unconfirmed parity-recovered address")]
-    UnconfirmedAddress {
-        /// Five-bit downlink format of the rejected frame.
-        downlink_format: u8,
-    },
-    /// The frame carries TIS-B or ADS-R service-management data rather than a
-    /// target report.
-    #[error("extended squitter carries service-management data, not a target")]
-    ServiceManagement,
-    /// The UAT address qualifier is reserved and has no defined namespace.
-    #[error("UAT address qualifier {qualifier} is reserved")]
-    ReservedAddressQualifier {
-        /// Raw qualifier value, rendered as its protocol number.
-        qualifier: u8,
-    },
-    /// A Mode A code in the reception is not four octal digits.
-    #[error("reception carries an invalid Mode A code")]
-    Squawk(#[from] InvalidSquawk),
-    /// The projection carries a band this version does not normalize.
-    ///
-    /// The payload enum is non-exhaustive so `aero-link` can add bands
-    /// compatibly; a consumer built before a new band exists refuses it
-    /// rather than misreading it as a supported one.
-    #[error("traffic payload names a band this version does not normalize")]
-    UnsupportedPayload,
-}

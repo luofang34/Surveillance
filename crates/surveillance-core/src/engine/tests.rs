@@ -12,6 +12,7 @@ use crate::track::{AddressNamespace, ProducerInstanceId, TrackDelta, TrackId, Tr
 
 mod association;
 mod classification;
+mod integrity;
 mod lifecycle;
 mod position;
 mod publication;

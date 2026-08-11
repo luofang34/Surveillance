@@ -21,11 +21,16 @@ use crate::freshness::FieldQuality;
 use crate::source::SourceRef;
 use crate::track::TrackKey;
 
+pub use integrity::{
+    AdsbIntegrityDeclaration, AdsbPositionIntegrity, AdsbPositionKind, AdsbVersion,
+    InvalidAdsbIntegrityDeclaration, InvalidAdsbPositionIntegrity,
+};
 pub use origin::ObservationOrigin;
 pub use status::{AirGroundState, CallsignKind, EmergencyState, EmitterCategory};
 pub use time::{ObservationTime, TimeBasis};
 pub use velocity::{AirspeedKind, HeadingReference, VelocityObservation, VerticalRateSource};
 
+mod integrity;
 mod origin;
 mod status;
 mod time;
@@ -64,6 +69,10 @@ pub struct TrafficObservation {
     pub emergency: Option<EmergencyState>,
     /// Source-neutral emitter category reported by the target.
     pub emitter_category: Option<EmitterCategory>,
+    /// ADS-B status declaration that qualifies position messages.
+    pub adsb_integrity: Option<AdsbIntegrityDeclaration>,
+    /// ADS-B type-code data used to derive position integrity.
+    pub adsb_position_integrity: Option<AdsbPositionIntegrity>,
     /// Integrity and accuracy indicators attached to this measurement.
     pub quality: FieldQuality,
 }
@@ -92,6 +101,8 @@ impl TrafficObservation {
             air_ground: None,
             emergency: None,
             emitter_category: None,
+            adsb_integrity: None,
+            adsb_position_integrity: None,
             quality: FieldQuality::default(),
         }
     }

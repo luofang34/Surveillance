@@ -167,7 +167,9 @@ pub fn refusal_ends_the_stream(error: &NormalizeError) -> bool {
         | NormalizeError::UnconfirmedAddress { .. }
         | NormalizeError::ServiceManagement
         | NormalizeError::ReservedAddressQualifier { .. }
-        | NormalizeError::Squawk(_) => false,
+        | NormalizeError::Squawk(_)
+        | NormalizeError::AdsbIntegrity(_)
+        | NormalizeError::AdsbPositionIntegrity(_) => false,
     }
 }
 
