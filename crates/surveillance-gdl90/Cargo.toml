@@ -1,0 +1,19 @@
+[package]
+name = "surveillance-gdl90"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "GDL 90 traffic report encoding from Surveillance track output"
+license = "MIT"
+
+[features]
+default = []
+std = ["surveillance-core/std"]
+
+[dependencies]
+libm = { workspace = true }
+surveillance-core = { version = "0.1.0", path = "../surveillance-core", default-features = false }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

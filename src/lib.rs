@@ -28,4 +28,10 @@ pub mod aero_link {
     pub use surveillance_aero_link::*;
 }
 
+/// Encoding of track snapshots as unframed GDL 90 Traffic Reports.
+#[cfg(feature = "gdl90")]
+pub mod gdl90 {
+    pub use surveillance_gdl90::*;
+}
+
 pub use surveillance_core::*;

@@ -10,6 +10,7 @@ license = "MIT"
 members = [
     "crates/surveillance-aero-link",
     "crates/surveillance-core",
+    "crates/surveillance-gdl90",
     "crates/surveillance-geojson",
     "crates/surveillance-replay",
 ]
@@ -46,13 +47,20 @@ path = "src/lib.rs"
 
 [features]
 default = []
-std = ["surveillance-core/std", "surveillance-aero-link?/std"]
+std = [
+    "surveillance-core/std",
+    "surveillance-aero-link?/std",
+    "surveillance-gdl90?/std",
+]
 # Radio input is opt-in: the portable default build never links a decoder.
 aero-link = ["dep:surveillance-aero-link"]
+# GDL 90 Traffic Report encoding is opt-in and owns no transport.
+gdl90 = ["dep:surveillance-gdl90"]
 
 [dependencies]
 surveillance-core = { version = "0.1.0", path = "crates/surveillance-core", default-features = false }
 surveillance-aero-link = { version = "0.1.0", path = "crates/surveillance-aero-link", default-features = false, optional = true }
+surveillance-gdl90 = { version = "0.1.0", path = "crates/surveillance-gdl90", default-features = false, optional = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }

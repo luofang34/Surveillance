@@ -318,6 +318,7 @@ dependencies = [
  "serde_json",
  "surveillance-aero-link",
  "surveillance-core",
+ "surveillance-gdl90",
 ]
 
 [[package]]
@@ -338,6 +339,15 @@ dependencies = [
  "libm",
  "serde",
  "serde_json",
+ "thiserror",
+]
+
+[[package]]
+name = "surveillance-gdl90"
+version = "0.1.0"
+dependencies = [
+ "libm",
+ "surveillance-core",
  "thiserror",
 ]
 
