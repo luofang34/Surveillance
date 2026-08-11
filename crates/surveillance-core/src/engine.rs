@@ -380,6 +380,12 @@ pub enum IngestError {
         /// Configured [`EngineConfig::max_tracks`] bound.
         capacity: usize,
     },
+    /// The next wrapped track identity still names a live track.
+    #[error("track identity {id:?} is still live; start a new producer instance")]
+    TrackIdentityExhausted {
+        /// Colliding identity.
+        id: TrackId,
+    },
     /// A wire identity and its emitter classification already select
     /// different live tracks.
     #[error(

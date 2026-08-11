@@ -342,6 +342,31 @@ fn track_capacity_is_enforced_without_disturbing_existing_tracks() {
 }
 
 #[test]
+fn a_wrapped_track_identity_cannot_replace_a_live_track() {
+    let mut engine = engine();
+    ingest(
+        &mut engine,
+        observation(1_000, ICAO, ObservationOrigin::ModeSReply),
+    );
+    engine.next_id = 0;
+
+    let outcome = engine.ingest(
+        observation(2_000, OTHER_ICAO, ObservationOrigin::ModeSReply),
+        |_| panic!("a rejected observation must emit nothing"),
+    );
+
+    assert_eq!(
+        outcome,
+        Err(IngestError::TrackIdentityExhausted {
+            id: TrackId::new(0),
+        })
+    );
+    assert_eq!(engine.track_count(), 1);
+    assert!(engine.snapshot(ICAO).is_some());
+    assert_eq!(engine.snapshot(OTHER_ICAO), None);
+}
+
+#[test]
 fn a_track_keeps_one_identity_across_its_life() {
     let mut engine = engine();
     let created = ingest(
