@@ -1,15 +1,15 @@
 //! Joining two tracks that correlation has decided are one aircraft.
 //!
-//! A merge preserves history rather than restarting it. The older track
-//! survives with its [`TrackId`] intact, absorbs the other's identities and
-//! fused fields through the normal precedence rules, and re-keys to the most
-//! authoritative identity available. The absorbed track is removed with
+//! A merge preserves history rather than restarting it. The earlier-created
+//! track keeps its [`TrackId`]. It absorbs the other track's identities and
+//! fused fields through the normal precedence rules. It then re-keys to the
+//! most authoritative identity. The absorbed track is removed with
 //! [`RemovalReason::Merged`], which tells a consumer to transfer what it was
 //! displaying rather than delete it.
 
 use alloc::collections::BTreeMap;
 
-use crate::association::namespace_rank;
+use crate::association::{forget_peer, namespace_rank};
 use crate::engine::publication::{SnapshotPublicationError, SnapshotPublisher};
 use crate::freshness::FreshnessPolicy;
 use crate::fusion::fuse;
@@ -54,6 +54,9 @@ pub(crate) fn merge(
     let Some(mut absorbed_state) = tracks.remove(&absorbed) else {
         return Ok(());
     };
+    for retained in tracks.values_mut() {
+        forget_peer(&mut retained.correlation, absorbed);
+    }
     let Some(survivor_state) = tracks.get_mut(&survivor) else {
         tracks.insert(absorbed, absorbed_state);
         return Ok(());
@@ -80,10 +83,6 @@ pub(crate) fn merge(
     survivor_state
         .identity_activity
         .extend_from_slice(&absorbed_state.identity_activity);
-    survivor_state
-        .correlation
-        .retain(|evidence| evidence.peer != absorbed);
-
     for key in identities_of(&survivor_state.snapshot) {
         keys.insert(key, survivor);
     }

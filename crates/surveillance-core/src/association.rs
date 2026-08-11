@@ -38,6 +38,12 @@ pub struct CorrelationPolicy {
     pub associate_after: u8,
     /// Consecutive disagreements required before an association is dropped.
     pub dissociate_after: u8,
+    /// Largest gap between samples in one consecutive evidence run.
+    pub max_evidence_gap_micros: u64,
+    /// Largest span from the first to the last agreement in one evidence run.
+    pub max_evidence_window_micros: u64,
+    /// Largest number of candidate peers retained by one track.
+    pub max_candidate_peers: usize,
     /// Silence on the primary identity, while another associated identity
     /// keeps reporting, after which the track demotes to the live identity.
     pub demote_after_micros: u64,
@@ -51,6 +57,9 @@ impl Default for CorrelationPolicy {
             max_ground_speed_difference_kt: 50.0,
             associate_after: 4,
             dissociate_after: 3,
+            max_evidence_gap_micros: 5_000_000,
+            max_evidence_window_micros: 15_000_000,
+            max_candidate_peers: 64,
             demote_after_micros: 20_000_000,
         }
     }
@@ -62,27 +71,51 @@ pub(crate) struct CorrelationEvidence {
     pub(crate) peer: TrackId,
     agreements: u8,
     disagreements: u8,
+    run_started_at_micros: u64,
+    last_observed_at_micros: Option<u64>,
 }
 
 impl CorrelationEvidence {
-    fn new(peer: TrackId) -> Self {
+    fn new(peer: TrackId, at_micros: u64) -> Self {
         Self {
             peer,
             agreements: 0,
             disagreements: 0,
+            run_started_at_micros: at_micros,
+            last_observed_at_micros: None,
         }
     }
 
     /// Fold one comparison into the running counts. Agreement and
     /// disagreement each reset the other, so only consecutive runs count.
-    fn observe(&mut self, agrees: bool) {
+    fn observe(&mut self, agrees: bool, at_micros: u64, policy: &CorrelationPolicy) {
+        if self
+            .last_observed_at_micros
+            .is_some_and(|last| at_micros <= last)
+        {
+            return;
+        }
+        if self.last_observed_at_micros.is_some_and(|last| {
+            at_micros.saturating_sub(last) > policy.max_evidence_gap_micros
+                || at_micros.saturating_sub(self.run_started_at_micros)
+                    > policy.max_evidence_window_micros
+        }) {
+            self.agreements = 0;
+            self.disagreements = 0;
+            self.run_started_at_micros = at_micros;
+        }
+        if self.agreements == 0 && self.disagreements == 0 {
+            self.run_started_at_micros = at_micros;
+        }
         if agrees {
             self.agreements = self.agreements.saturating_add(1);
             self.disagreements = 0;
         } else {
             self.disagreements = self.disagreements.saturating_add(1);
             self.agreements = 0;
+            self.run_started_at_micros = at_micros;
         }
+        self.last_observed_at_micros = Some(at_micros);
     }
 }
 
@@ -174,31 +207,68 @@ pub fn agrees(
     )?;
 
     let separation_m = great_circle_distance_m(left_position, right_position);
-    if separation_m > policy.max_position_separation_m {
+    if separation_m > position_limit_m(left, right, policy) {
         return Some(false);
     }
 
-    Some(
-        altitudes_agree(left, right, policy)
-            && speeds_agree(left, right, now_micros, policy, freshness),
-    )
+    let altitude = altitudes_agree(left, right, now_micros, policy, freshness);
+    let speed = speeds_agree(left, right, now_micros, policy, freshness);
+    if altitude == Some(false) || speed == Some(false) {
+        return Some(false);
+    }
+    (altitude == Some(true) && speed == Some(true)).then_some(true)
 }
 
-/// Altitude disagreement is decisive; absence on either side is not, because
-/// a report without altitude is not evidence of a different aircraft.
-fn altitudes_agree(
+fn position_limit_m(
     left: &TrackSnapshot,
     right: &TrackSnapshot,
     policy: &CorrelationPolicy,
-) -> bool {
-    let (Some(left_altitude), Some(right_altitude)) = (
-        left.pressure_altitude_ft.as_ref(),
-        right.pressure_altitude_ft.as_ref(),
-    ) else {
-        return true;
-    };
-    left_altitude.value.abs_diff(right_altitude.value)
-        <= policy.max_altitude_difference_ft.unsigned_abs()
+) -> f64 {
+    let left_radius = left
+        .position
+        .as_ref()
+        .and_then(|position| position.quality.nic)
+        .and_then(nic_containment_radius_m);
+    let right_radius = right
+        .position
+        .as_ref()
+        .and_then(|position| position.quality.nic)
+        .and_then(nic_containment_radius_m);
+    left_radius
+        .zip(right_radius)
+        .map_or(policy.max_position_separation_m, |(left, right)| {
+            (left + right).min(policy.max_position_separation_m)
+        })
+}
+
+fn nic_containment_radius_m(nic: u8) -> Option<f64> {
+    match nic {
+        11 => Some(7.5),
+        10 => Some(25.0),
+        9 => Some(75.0),
+        8 => Some(185.2),
+        7 => Some(370.4),
+        6 => Some(926.0),
+        5 => Some(1_852.0),
+        4 => Some(3_704.0),
+        3 => Some(7_408.0),
+        2 => Some(14_816.0),
+        1 => Some(37_040.0),
+        _ => None,
+    }
+}
+
+fn altitudes_agree(
+    left: &TrackSnapshot,
+    right: &TrackSnapshot,
+    now_micros: u64,
+    policy: &CorrelationPolicy,
+    freshness: &FreshnessPolicy,
+) -> Option<bool> {
+    let window = freshness.position_fresh_micros;
+    let left_altitude = fresh(left.pressure_altitude_ft.as_ref(), now_micros, window)?;
+    let right_altitude = fresh(right.pressure_altitude_ft.as_ref(), now_micros, window)?;
+    Some(left_altitude.abs_diff(right_altitude) <= policy.max_altitude_difference_ft.unsigned_abs())
 }
 
 fn speeds_agree(
@@ -207,21 +277,13 @@ fn speeds_agree(
     now_micros: u64,
     policy: &CorrelationPolicy,
     freshness: &FreshnessPolicy,
-) -> bool {
+) -> Option<bool> {
     let window = freshness.velocity_fresh_micros;
-    let (Some(left_velocity), Some(right_velocity)) = (
-        fresh(left.velocity.as_ref(), now_micros, window),
-        fresh(right.velocity.as_ref(), now_micros, window),
-    ) else {
-        return true;
-    };
-    let (Some(left_speed), Some(right_speed)) = (
-        left_velocity.ground_speed_kt,
-        right_velocity.ground_speed_kt,
-    ) else {
-        return true;
-    };
-    (left_speed - right_speed).abs() <= policy.max_ground_speed_difference_kt
+    let left_velocity = fresh(left.velocity.as_ref(), now_micros, window)?;
+    let right_velocity = fresh(right.velocity.as_ref(), now_micros, window)?;
+    let left_speed = left_velocity.ground_speed_kt?;
+    let right_speed = right_velocity.ground_speed_kt?;
+    Some((left_speed - right_speed).abs() <= policy.max_ground_speed_difference_kt)
 }
 
 fn fresh<T: Copy>(field: Option<&TimedField<T>>, now_micros: u64, window_micros: u64) -> Option<T> {
@@ -233,23 +295,35 @@ fn fresh<T: Copy>(field: Option<&TimedField<T>>, now_micros: u64, window_micros:
 /// Fold one round of comparisons into a track's evidence, reporting a peer
 /// that has now accumulated enough agreement to associate.
 ///
-/// Peers are held in [`TrackId`] order and a peer that reaches the
-/// dissociation threshold is dropped, so evidence neither grows without bound
-/// nor depends on observation order.
+/// Peers are held in [`TrackId`] order. Old evidence expires before a new
+/// sample is applied. The configured candidate bound limits per-track memory.
 pub(crate) fn record(
     evidence: &mut Vec<CorrelationEvidence>,
     outcomes: &[(TrackId, bool)],
+    at_micros: u64,
     policy: &CorrelationPolicy,
 ) -> Option<TrackId> {
+    evidence.retain(|entry| {
+        entry
+            .last_observed_at_micros
+            .is_some_and(|last| at_micros.saturating_sub(last) <= policy.max_evidence_window_micros)
+    });
+
     for (peer, agrees) in outcomes {
         let index = match evidence.binary_search_by_key(peer, |entry| entry.peer) {
             Ok(index) => index,
-            Err(index) => {
-                evidence.insert(index, CorrelationEvidence::new(*peer));
+            Err(_) => {
+                if !make_candidate_slot(evidence, policy) {
+                    continue;
+                }
+                let index = evidence
+                    .binary_search_by_key(peer, |entry| entry.peer)
+                    .unwrap_or_else(|index| index);
+                evidence.insert(index, CorrelationEvidence::new(*peer, at_micros));
                 index
             }
         };
-        evidence[index].observe(*agrees);
+        evidence[index].observe(*agrees, at_micros, policy);
     }
 
     evidence.retain(|entry| entry.disagreements < policy.dissociate_after);
@@ -257,4 +331,30 @@ pub(crate) fn record(
         .iter()
         .find(|entry| entry.agreements >= policy.associate_after)
         .map(|entry| entry.peer)
+}
+
+fn make_candidate_slot(
+    evidence: &mut Vec<CorrelationEvidence>,
+    policy: &CorrelationPolicy,
+) -> bool {
+    if policy.max_candidate_peers == 0 {
+        return false;
+    }
+    if evidence.len() < policy.max_candidate_peers {
+        return true;
+    }
+    let Some((oldest, _)) = evidence
+        .iter()
+        .enumerate()
+        .min_by_key(|(_, entry)| (entry.last_observed_at_micros, entry.peer))
+    else {
+        return false;
+    };
+    evidence.remove(oldest);
+    true
+}
+
+/// Remove all evidence that names `peer`.
+pub(crate) fn forget_peer(evidence: &mut Vec<CorrelationEvidence>, peer: TrackId) {
+    evidence.retain(|entry| entry.peer != peer);
 }

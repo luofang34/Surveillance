@@ -179,7 +179,9 @@ impl SurveillanceEngine {
         let Some(state) = self.tracks.get_mut(&subject) else {
             return Ok(());
         };
-        let Some(peer) = association::record(&mut state.correlation, &outcomes, &policy) else {
+        let Some(peer) =
+            association::record(&mut state.correlation, &outcomes, now_micros, &policy)
+        else {
             return Ok(());
         };
 
