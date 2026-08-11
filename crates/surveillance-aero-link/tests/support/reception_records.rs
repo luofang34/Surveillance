@@ -108,7 +108,8 @@ pub struct Replayed {
 }
 
 pub fn replay_with(config: EngineConfig, stream: &[u8]) -> Replayed {
-    let mut engine = SurveillanceEngine::new(config, ProducerInstanceId::new(1));
+    let mut engine =
+        SurveillanceEngine::new(config, ProducerInstanceId::new(1)).expect("test config is valid");
     let mut deltas = Vec::new();
     let mut refusals = Vec::new();
     let outcome = replay_records(

@@ -28,12 +28,14 @@ pub use integrity::{
 pub use origin::ObservationOrigin;
 pub use status::{AirGroundState, CallsignKind, EmergencyState, EmitterCategory};
 pub use time::{ObservationTime, TimeBasis};
+pub use validity::{InvalidObservation, InvalidPosition, InvalidVelocity, QualityIndicator};
 pub use velocity::{AirspeedKind, HeadingReference, VelocityObservation, VerticalRateSource};
 
 mod integrity;
 mod origin;
 mod status;
 mod time;
+mod validity;
 mod velocity;
 
 #[cfg(test)]

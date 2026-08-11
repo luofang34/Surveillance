@@ -10,7 +10,7 @@
 use thiserror::Error;
 
 use crate::geodesy::great_circle_distance_m;
-use crate::observation::Wgs84Position;
+use crate::observation::{InvalidPosition, Wgs84Position};
 
 pub mod global;
 pub mod local;
@@ -60,21 +60,28 @@ impl CprFrame {
         encoded_latitude: u32,
         encoded_longitude: u32,
     ) -> Result<Self, CprFrameError> {
-        if encoded_latitude > Self::MAX_ENCODED {
-            return Err(CprFrameError::EncodedLatitudeRange {
-                value: encoded_latitude,
-            });
-        }
-        if encoded_longitude > Self::MAX_ENCODED {
-            return Err(CprFrameError::EncodedLongitudeRange {
-                value: encoded_longitude,
-            });
-        }
-        Ok(Self {
+        let frame = Self {
             format,
             encoded_latitude,
             encoded_longitude,
-        })
+        };
+        frame.validate()?;
+        Ok(frame)
+    }
+
+    /// Check that both encoded coordinates fit in 17 bits.
+    pub fn validate(self) -> Result<(), CprFrameError> {
+        if self.encoded_latitude > Self::MAX_ENCODED {
+            return Err(CprFrameError::EncodedLatitudeRange {
+                value: self.encoded_latitude,
+            });
+        }
+        if self.encoded_longitude > Self::MAX_ENCODED {
+            return Err(CprFrameError::EncodedLongitudeRange {
+                value: self.encoded_longitude,
+            });
+        }
+        Ok(())
     }
 }
 
@@ -152,9 +159,9 @@ pub enum CprDecodeError {
         latitude_deg: f64,
     },
     /// The decode implies travel the target could not have made.
-    #[error("decoded position is {distance_m} m from the previous one, limit is {limit_m} m")]
+    #[error("decoded position is {distance_m} m from the most recent one, limit is {limit_m} m")]
     ImplausibleRange {
-        /// Distance from the previously applied position.
+        /// Distance from the most recent applied position.
         distance_m: f64,
         /// Bound implied by elapsed time and [`CprPolicy::max_ground_speed_kt`].
         limit_m: f64,
@@ -162,6 +169,13 @@ pub enum CprDecodeError {
     /// A reference-dependent frame arrived with no trustworthy reference.
     #[error("no reference position available for a reference-dependent CPR frame")]
     ReferenceRequired,
+    /// The decoded result is not a WGS84 geographic point.
+    #[error("decoded position is invalid")]
+    InvalidPosition {
+        /// Position validation failure.
+        #[from]
+        source: InvalidPosition,
+    },
 }
 
 /// One CPR frame and the time it was received.
@@ -173,9 +187,8 @@ struct TimedCprFrame {
 
 /// Even/odd frame history for one track.
 ///
-/// Recording a frame always succeeds; validation happens at decode time so a
-/// rejected decode still leaves the newer frame available to pair with the
-/// next reception of the opposite parity.
+/// The engine validates a frame before it records it. A rejected decode keeps
+/// the valid newer frame available for the next opposite-parity reception.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct CprHistory {
     even: Option<TimedCprFrame>,
@@ -235,6 +248,8 @@ pub fn validate_range(
     elapsed_micros: u64,
     policy: &CprPolicy,
 ) -> Result<(), CprDecodeError> {
+    candidate.validate()?;
+    previous.validate()?;
     let elapsed_hours = elapsed_micros as f64 / 3_600_000_000.0;
     let travel_m = policy.max_ground_speed_kt * elapsed_hours * METRES_PER_NAUTICAL_MILE;
     let limit_m = travel_m + policy.jump_allowance_m;

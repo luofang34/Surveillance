@@ -40,7 +40,7 @@ fn positioned(at_micros: u64, key: TrackKey, latitude_deg: f64) -> TrafficObserv
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let mut engine = SurveillanceEngine::new(EngineConfig::default(), ProducerInstanceId::new(1));
+    let mut engine = SurveillanceEngine::new(EngineConfig::default(), ProducerInstanceId::new(1))?;
     engine.ingest(positioned(1, SUBJECT, 0.0), |_| {})?;
     for index in 1..DEFAULT_MAX_TRACKS {
         let key = TrackKey::new(AddressNamespace::TisbTrackFile, index as u32);

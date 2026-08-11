@@ -13,9 +13,11 @@ const OTHER: TrackKey = TrackKey::new(crate::track::AddressNamespace::Icao, 0x00
 #[test]
 fn two_engine_constructions_separate_restarted_track_identities() {
     let mut first =
-        SurveillanceEngine::new(EngineConfig::default(), ProducerInstanceId::new(0x1001));
+        SurveillanceEngine::new(EngineConfig::default(), ProducerInstanceId::new(0x1001))
+            .expect("default config is valid");
     let mut second =
-        SurveillanceEngine::new(EngineConfig::default(), ProducerInstanceId::new(0x1002));
+        SurveillanceEngine::new(EngineConfig::default(), ProducerInstanceId::new(0x1002))
+            .expect("default config is valid");
     ingest(
         &mut first,
         observation(0, ICAO, ObservationOrigin::ModeSReply),
@@ -36,7 +38,8 @@ fn two_engine_constructions_separate_restarted_track_identities() {
 
 #[test]
 fn a_retained_handle_does_not_change_when_the_engine_advances() {
-    let mut engine = SurveillanceEngine::new(EngineConfig::default(), PRODUCER);
+    let mut engine = SurveillanceEngine::new(EngineConfig::default(), PRODUCER)
+        .expect("default config is valid");
     ingest(
         &mut engine,
         observation(0, ICAO, ObservationOrigin::ModeSReply),
@@ -58,7 +61,8 @@ fn a_retained_handle_does_not_change_when_the_engine_advances() {
 
 #[test]
 fn revision_changes_only_when_exported_state_changes() {
-    let mut engine = SurveillanceEngine::new(EngineConfig::default(), PRODUCER);
+    let mut engine = SurveillanceEngine::new(EngineConfig::default(), PRODUCER)
+        .expect("default config is valid");
     let observed = observation(1_000, ICAO, ObservationOrigin::ModeSReply);
 
     ingest(&mut engine, observed.clone());
@@ -69,10 +73,12 @@ fn revision_changes_only_when_exported_state_changes() {
     assert_eq!(created_revision, SnapshotRevision::new(1));
 
     assert!(ingest(&mut engine, observed).is_empty());
-    engine.set_reference_position(Some(Wgs84Position {
-        latitude_deg: 40.0,
-        longitude_deg: -74.0,
-    }));
+    engine
+        .set_reference_position(Some(Wgs84Position {
+            latitude_deg: 40.0,
+            longitude_deg: -74.0,
+        }))
+        .expect("reference is valid");
     advance(&mut engine, 1_000);
 
     assert_eq!(
@@ -86,7 +92,8 @@ fn revision_changes_only_when_exported_state_changes() {
 
 #[test]
 fn a_freshness_refresh_revises_the_snapshot_without_a_delta() {
-    let mut engine = SurveillanceEngine::new(EngineConfig::default(), PRODUCER);
+    let mut engine = SurveillanceEngine::new(EngineConfig::default(), PRODUCER)
+        .expect("default config is valid");
     let mut first = observation(1_000, ICAO, ObservationOrigin::ModeSReply);
     first.pressure_altitude_ft = Some(8_000);
     ingest(&mut engine, first.clone());
@@ -101,7 +108,8 @@ fn a_freshness_refresh_revises_the_snapshot_without_a_delta() {
 
 #[test]
 fn revisions_order_published_states_of_one_subject() {
-    let mut engine = SurveillanceEngine::new(EngineConfig::default(), PRODUCER);
+    let mut engine = SurveillanceEngine::new(EngineConfig::default(), PRODUCER)
+        .expect("default config is valid");
     let mut first = observation(1_000, ICAO, ObservationOrigin::ModeSReply);
     first.pressure_altitude_ft = Some(8_000);
     let mut other = observation(1_000, OTHER, ObservationOrigin::ModeSReply);
@@ -131,7 +139,8 @@ fn revisions_order_published_states_of_one_subject() {
 
 #[test]
 fn an_ingest_does_not_publish_a_wrapped_revision() {
-    let mut engine = SurveillanceEngine::new(EngineConfig::default(), PRODUCER);
+    let mut engine = SurveillanceEngine::new(EngineConfig::default(), PRODUCER)
+        .expect("default config is valid");
     ingest(
         &mut engine,
         observation(0, ICAO, ObservationOrigin::ModeSReply),
@@ -173,7 +182,8 @@ fn an_ingest_does_not_publish_a_wrapped_revision() {
 
 #[test]
 fn revision_exhaustion_does_not_add_a_classified_wire_alias() {
-    let mut engine = SurveillanceEngine::new(EngineConfig::default(), PRODUCER);
+    let mut engine = SurveillanceEngine::new(EngineConfig::default(), PRODUCER)
+        .expect("default config is valid");
     let classified = TrackKey::new(crate::AddressNamespace::SelfAssigned, 0x00AB_CDEF);
     ingest(
         &mut engine,
@@ -202,7 +212,8 @@ fn revision_exhaustion_does_not_add_a_classified_wire_alias() {
 
 #[test]
 fn time_advance_does_not_publish_a_wrapped_revision() {
-    let mut engine = SurveillanceEngine::new(EngineConfig::default(), PRODUCER);
+    let mut engine = SurveillanceEngine::new(EngineConfig::default(), PRODUCER)
+        .expect("default config is valid");
     ingest(
         &mut engine,
         observation(0, ICAO, ObservationOrigin::ModeSReply),
@@ -241,7 +252,8 @@ fn time_advance_does_not_publish_a_wrapped_revision() {
 
 #[test]
 fn a_removal_gets_the_subjects_next_revision() {
-    let mut engine = SurveillanceEngine::new(EngineConfig::default(), PRODUCER);
+    let mut engine = SurveillanceEngine::new(EngineConfig::default(), PRODUCER)
+        .expect("default config is valid");
     ingest(
         &mut engine,
         observation(0, ICAO, ObservationOrigin::ModeSReply),

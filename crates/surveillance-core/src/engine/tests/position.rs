@@ -258,8 +258,11 @@ fn a_surface_frame_needs_a_reference_position() {
             longitude_deg: 151.2,
         },
     ] {
-        let mut referenced = SurveillanceEngine::new(EngineConfig::default(), PRODUCER);
-        referenced.set_reference_position(Some(reference));
+        let mut referenced = SurveillanceEngine::new(EngineConfig::default(), PRODUCER)
+            .expect("default config is valid");
+        referenced
+            .set_reference_position(Some(reference))
+            .expect("the reference is valid");
         ingest(&mut referenced, observed.clone());
 
         let decoded = referenced

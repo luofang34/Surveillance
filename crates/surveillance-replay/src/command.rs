@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use surveillance_aero_link::NormalizeError;
 use surveillance_aero_link::replay::{ReplayCounts, ReplayError, replay_records};
-use surveillance_core::{EngineConfig, ProducerInstanceId, SurveillanceEngine};
+use surveillance_core::{EngineConfig, EngineConfigError, ProducerInstanceId, SurveillanceEngine};
 use thiserror::Error;
 use tracing::{info, warn};
 
@@ -108,7 +108,7 @@ where
     R: BufRead,
     W: Write,
 {
-    let mut engine = SurveillanceEngine::new(EngineConfig::default(), producer_instance_id);
+    let mut engine = SurveillanceEngine::new(EngineConfig::default(), producer_instance_id)?;
     let mut output = DeltaWriter::new(writer, format)?;
     let result = replay_records(
         stream,
@@ -170,6 +170,8 @@ pub(crate) enum ReplayCommandError {
 
 #[derive(Debug, Error)]
 pub(crate) enum ReplayRunError {
+    #[error("the engine configuration is invalid")]
+    Configuration(#[from] EngineConfigError),
     #[error("the reception stream failed")]
     Replay(#[source] ReplayError),
     #[error("the output stream failed")]

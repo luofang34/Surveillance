@@ -14,7 +14,7 @@ use surveillance::{
 };
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut engine = SurveillanceEngine::new(EngineConfig::default(), ProducerInstanceId::new(1));
+    let mut engine = SurveillanceEngine::new(EngineConfig::default(), ProducerInstanceId::new(1))?;
 
     // A provider reached over the network, on its first connection.
     let provider = SourceRef::new(7, 1, DeliveryPath::NetworkProvider);
