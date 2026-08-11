@@ -4,9 +4,11 @@ use alloc::vec::Vec;
 
 use crate::source::{Band, DeliveryPath, SourceRef};
 
-use crate::engine::{EngineConfig, IngestError, SurveillanceEngine};
+use crate::engine::{
+    DEFAULT_MAX_TRACK_KEYS, DEFAULT_MAX_TRACKS, EngineConfig, IngestError, SurveillanceEngine,
+};
 use crate::observation::{
-    Callsign, ObservationOrigin, ObservationTime, Squawk, TrafficObservation,
+    Callsign, EmitterCategory, ObservationOrigin, ObservationTime, Squawk, TrafficObservation,
 };
 use crate::track::{AddressNamespace, ProducerInstanceId, TrackDelta, TrackId, TrackKey};
 
@@ -50,6 +52,13 @@ pub(super) fn advance(engine: &mut SurveillanceEngine, now_micros: u64) -> Vec<T
         .advance_time(now_micros, |delta| deltas.push(delta.clone()))
         .expect("time advance succeeds");
     deltas
+}
+
+#[test]
+fn default_configuration_bounds_tracks_and_keys() {
+    let config = EngineConfig::default();
+    assert_eq!(config.max_tracks, Some(DEFAULT_MAX_TRACKS));
+    assert_eq!(config.max_track_keys, Some(DEFAULT_MAX_TRACK_KEYS));
 }
 
 #[test]
@@ -340,6 +349,44 @@ fn track_capacity_is_enforced_without_disturbing_existing_tracks() {
         ),
     );
     assert_eq!(engine.track_count(), 1);
+}
+
+#[test]
+fn track_key_capacity_rejects_all_keys_before_track_creation() {
+    let mut engine = SurveillanceEngine::new(
+        EngineConfig {
+            max_track_keys: Some(1),
+            ..EngineConfig::default()
+        },
+        PRODUCER,
+    );
+    let wire_key = TrackKey::new(AddressNamespace::AdsbNonIcao, 0x0012_3456);
+    let mut observed = observation(
+        1_000,
+        wire_key,
+        ObservationOrigin::AdsbDirect {
+            band: Band::Adsb1090,
+        },
+    );
+    observed.emitter_category = Some(EmitterCategory::LightAircraft);
+
+    let outcome = engine.ingest(observed, |_| {
+        panic!("a rejected observation must emit nothing")
+    });
+
+    assert_eq!(
+        outcome,
+        Err(IngestError::TrackKeyCapacityExceeded { capacity: 1 })
+    );
+    assert_eq!(engine.track_count(), 0);
+    assert_eq!(engine.snapshot(wire_key), None);
+    assert_eq!(
+        engine.snapshot(TrackKey::new(
+            AddressNamespace::SelfAssigned,
+            wire_key.address
+        )),
+        None
+    );
 }
 
 #[test]

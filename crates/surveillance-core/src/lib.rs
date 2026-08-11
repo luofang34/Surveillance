@@ -36,8 +36,9 @@ pub mod track;
 pub use association::{CorrelationPolicy, agrees, may_correlate, namespace_rank};
 pub use cpr::{CprDecodeError, CprFormat, CprFrame, CprFrameError, CprPolicy};
 pub use engine::{
-    EngineConfig, FieldDisposition, FieldOutcomes, IngestError, IngestOutcome, PositionDisposition,
-    PositionRejection, SnapshotPublicationError, SurveillanceEngine,
+    DEFAULT_MAX_TRACK_KEYS, DEFAULT_MAX_TRACKS, EngineConfig, FieldDisposition, FieldOutcomes,
+    IngestError, IngestOutcome, PositionDisposition, PositionRejection, SnapshotPublicationError,
+    SurveillanceEngine,
 };
 pub use freshness::{FieldProvenance, FieldQuality, FreshnessPolicy, TimedField};
 pub use fusion::{FieldUpdate, fuse, origin_rank};

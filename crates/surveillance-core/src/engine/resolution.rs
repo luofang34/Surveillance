@@ -26,6 +26,8 @@ impl SurveillanceEngine {
             });
         }
 
+        self.ensure_key_capacity(observation.key, classified_key)?;
+
         if let Some(id) = observed_id.or(classified_id) {
             let state = self
                 .tracks
@@ -52,5 +54,23 @@ impl SurveillanceEngine {
         self.tracks.insert(id, TrackState::from(snapshot));
         self.keys.insert(observation.key, id);
         Ok((id, true))
+    }
+
+    fn ensure_key_capacity(
+        &self,
+        observed_key: TrackKey,
+        classified_key: Option<TrackKey>,
+    ) -> Result<(), IngestError> {
+        let Some(capacity) = self.config.max_track_keys else {
+            return Ok(());
+        };
+        let observed_is_new = !self.keys.contains_key(&observed_key);
+        let classified_is_new =
+            classified_key.is_some_and(|key| key != observed_key && !self.keys.contains_key(&key));
+        let required = usize::from(observed_is_new) + usize::from(classified_is_new);
+        if self.keys.len().saturating_add(required) > capacity {
+            return Err(IngestError::TrackKeyCapacityExceeded { capacity });
+        }
+        Ok(())
     }
 }

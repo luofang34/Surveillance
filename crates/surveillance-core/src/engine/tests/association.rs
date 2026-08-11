@@ -5,7 +5,7 @@ use alloc::vec::Vec;
 use crate::source::Band;
 
 use crate::engine::tests::{ICAO, PRODUCER, engine, ingest, observation};
-use crate::engine::{EngineConfig, SurveillanceEngine};
+use crate::engine::{DEFAULT_MAX_TRACKS, EngineConfig, SurveillanceEngine};
 use crate::observation::{
     Callsign, ObservationOrigin, PositionObservation, TrafficObservation, VelocityObservation,
     Wgs84Position,
@@ -424,5 +424,51 @@ fn a_merge_is_independent_of_which_side_reports_first() {
     assert_eq!(
         icao_first_id, track_file_first_id,
         "whichever identity was seen first keeps its track"
+    );
+}
+
+#[test]
+fn association_at_the_default_track_bound_keeps_declared_limits() {
+    let mut engine = engine();
+    ingest(
+        &mut engine,
+        report(
+            1,
+            ICAO,
+            ObservationOrigin::AdsbDirect {
+                band: Band::Adsb1090,
+            },
+            0.0,
+        ),
+    );
+    for address in 1..DEFAULT_MAX_TRACKS {
+        let key = TrackKey::new(AddressNamespace::TisbTrackFile, address as u32);
+        ingest(
+            &mut engine,
+            report(1, key, ObservationOrigin::Tisb { band: Band::Uat978 }, 1.0),
+        );
+    }
+
+    let subject = engine.snapshot(ICAO).expect("subject exists").id;
+    assert_eq!(
+        engine.compare_peers(subject, 2).len(),
+        DEFAULT_MAX_TRACKS - 1
+    );
+    ingest(
+        &mut engine,
+        report(
+            2,
+            ICAO,
+            ObservationOrigin::AdsbDirect {
+                band: Band::Adsb1090,
+            },
+            0.0,
+        ),
+    );
+
+    let state = engine.tracks.get(&subject).expect("subject state exists");
+    assert_eq!(
+        state.correlation.len(),
+        engine.config().correlation.max_candidate_peers
     );
 }
