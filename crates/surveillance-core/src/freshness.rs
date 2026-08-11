@@ -125,9 +125,9 @@ impl FieldProvenance {
 /// Per-field freshness windows and track retention, in monotonic
 /// microseconds.
 ///
-/// These values are conservative starting points and have not been reviewed
-/// against operational display practice; applications override them per
-/// deployment through [`crate::EngineConfig`].
+/// The defaults allow the documented 13-second upper update interval for
+/// TIS-B reports. They remove a silent track after 60 seconds. Applications
+/// can use stricter values through [`crate::EngineConfig`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub struct FreshnessPolicy {
@@ -137,6 +137,9 @@ pub struct FreshnessPolicy {
     pub velocity_fresh_micros: u64,
     /// Window during which identity fields (callsign, squawk) are current.
     pub identity_fresh_micros: u64,
+    /// Window during which an ADS-B integrity declaration can qualify a
+    /// position message.
+    pub integrity_fresh_micros: u64,
     /// Age of the newest applied observation after which a track coasts.
     pub coast_after_micros: u64,
     /// Age of the newest applied observation after which a track is removed.
@@ -146,11 +149,12 @@ pub struct FreshnessPolicy {
 impl Default for FreshnessPolicy {
     fn default() -> Self {
         Self {
-            position_fresh_micros: 10_000_000,
-            velocity_fresh_micros: 10_000_000,
+            position_fresh_micros: 15_000_000,
+            velocity_fresh_micros: 15_000_000,
             identity_fresh_micros: 60_000_000,
+            integrity_fresh_micros: 5_000_000,
             coast_after_micros: 15_000_000,
-            remove_after_micros: 90_000_000,
+            remove_after_micros: 60_000_000,
         }
     }
 }
