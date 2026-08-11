@@ -1,9 +1,10 @@
 use crate::engine::IngestError;
+use crate::freshness::FreshnessPolicy;
 use crate::observation::{EmitterCategory, ObservationOrigin, PositionObservation, Wgs84Position};
 use crate::source::Band;
 use crate::track::{AddressNamespace, TrackDelta, TrackKey};
 
-use super::{engine, ingest, observation};
+use super::{advance, engine, ingest, observation};
 
 const ADDRESS: u32 = 0x00AB_CDEF;
 const UNCLASSIFIED: TrackKey = TrackKey::new(AddressNamespace::AdsbNonIcao, ADDRESS);
@@ -94,6 +95,45 @@ fn an_aircraft_category_enables_aircraft_correlation_policy() {
         aircraft.namespace,
         AddressNamespace::Icao
     ));
+}
+
+#[test]
+fn an_existing_classified_track_retains_and_releases_its_wire_alias() {
+    let mut engine = engine();
+    let classified_key = TrackKey::new(AddressNamespace::SelfAssigned, ADDRESS);
+    let created = ingest(&mut engine, positioned(1_000, classified_key));
+    let original_id = created[0].id();
+
+    let mut wire_report = observation(
+        2_000,
+        UNCLASSIFIED,
+        ObservationOrigin::AdsbDirect {
+            band: Band::Adsb1090,
+        },
+    );
+    wire_report.emitter_category = Some(EmitterCategory::LightAircraft);
+    ingest(&mut engine, wire_report);
+
+    let snapshot = engine
+        .snapshot(classified_key)
+        .expect("classified track exists");
+    assert_eq!(snapshot.id, original_id);
+    assert!(snapshot.identities.contains(UNCLASSIFIED));
+    assert_eq!(
+        engine.snapshot(UNCLASSIFIED).map(|value| value.id),
+        Some(original_id)
+    );
+
+    advance(
+        &mut engine,
+        2_000 + FreshnessPolicy::default().remove_after_micros + 1,
+    );
+    assert_eq!(engine.snapshot(classified_key), None);
+    assert_eq!(engine.snapshot(UNCLASSIFIED), None);
+
+    let recreated = ingest(&mut engine, positioned(70_000_000, UNCLASSIFIED));
+    assert!(matches!(recreated.as_slice(), [TrackDelta::Created(_)]));
+    assert_ne!(recreated[0].id(), original_id);
 }
 
 #[test]
