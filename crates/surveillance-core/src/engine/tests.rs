@@ -11,6 +11,7 @@ use crate::observation::{
 use crate::track::{AddressNamespace, ProducerInstanceId, TrackDelta, TrackId, TrackKey};
 
 mod association;
+mod classification;
 mod lifecycle;
 mod position;
 mod publication;

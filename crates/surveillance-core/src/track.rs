@@ -2,7 +2,7 @@
 
 use core::ops::Deref;
 
-use crate::observation::{AirGroundState, EmergencyState};
+use crate::observation::{AirGroundState, EmergencyState, EmitterCategory};
 use serde::{Deserialize, Serialize};
 
 use alloc::vec::Vec;
@@ -213,7 +213,7 @@ pub struct TrackSnapshot {
     pub emergency: Option<TimedField<EmergencyState>>,
     /// Fused source-neutral emitter category.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub emitter_category: Option<TimedField<u8>>,
+    pub emitter_category: Option<TimedField<EmitterCategory>>,
     /// Monotonic time the track was created.
     pub created_at_micros: u64,
     /// Monotonic time of the newest applied observation.
