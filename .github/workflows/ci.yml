@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out Surveillance
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           path: Surveillance
 
@@ -45,7 +45,7 @@ jobs:
           echo "ref=$ref" >> "$GITHUB_OUTPUT"
 
       - name: Check out aero-link
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: luofang34/aero-link
           ref: ${{ steps.dependency.outputs.ref }}
@@ -74,7 +74,7 @@ jobs:
       # Both lockfiles key the cache: an aero-link change must not be served a
       # stale build of the dependency it feeds.
       - name: Cache cargo artifacts
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry/index
