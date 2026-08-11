@@ -77,6 +77,9 @@ pub enum FieldUpdate {
     Rejected,
     /// The candidate won and carries a different value.
     Changed,
+    /// The candidate won and changed quality or provenance without changing
+    /// the measured value.
+    MetadataChanged,
     /// The candidate won but carries the same value, so only freshness and
     /// provenance advanced. Callers suppress deltas for this outcome.
     Refreshed,
@@ -92,7 +95,7 @@ impl FieldUpdate {
     /// Whether the field's value differs from what a consumer last saw.
     #[must_use]
     pub fn is_meaningful(self) -> bool {
-        matches!(self, Self::Changed)
+        matches!(self, Self::Changed | Self::MetadataChanged)
     }
 }
 
@@ -115,10 +118,14 @@ pub fn fuse<T: PartialEq>(
         return FieldUpdate::Rejected;
     }
 
-    let changed = current.value != candidate.value;
+    let value_changed = current.value != candidate.value;
+    let metadata_changed =
+        current.quality != candidate.quality || current.provenance != candidate.provenance;
     *slot = Some(candidate);
-    if changed {
+    if value_changed {
         FieldUpdate::Changed
+    } else if metadata_changed {
+        FieldUpdate::MetadataChanged
     } else {
         FieldUpdate::Refreshed
     }

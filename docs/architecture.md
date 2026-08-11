@@ -312,8 +312,9 @@ and provenance (origin, namespace, source reference). Rules:
 - Age is always the pessimistic end of any timing uncertainty, so a loosely
   mapped provider time is treated as older than a tightly mapped one rather
   than as equally current.
-- Duplicate observations (same content from multiple receivers) update
-  provenance and freshness without generating spurious deltas.
+- Repeated content from one source updates freshness without a delta. A
+  source, origin, or quality change emits an update so a delta-only consumer
+  has the current field metadata.
 - Units are explicit in field names and newtypes: WGS84 degrees, feet,
   knots, feet per minute, microseconds. No ambiguous `speed`, `heading`,
   `altitude`, or `time` fields exist anywhere in the public API.

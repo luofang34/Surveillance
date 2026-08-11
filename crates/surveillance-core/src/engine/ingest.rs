@@ -3,8 +3,9 @@
 //! Every field is offered to [`crate::fusion::fuse`] with its own freshness
 //! window, so precedence and ordering tolerance live in one place and a
 //! callsign update cannot refresh an old position. The return value reports
-//! whether a consumer-visible value changed; provenance-only refreshes stay
-//! silent so duplicate receptions from several receivers emit no deltas.
+//! whether a consumer-visible value changed. A source handover emits a delta
+//! so a delta-only consumer keeps current provenance. Repeated content from
+//! one source stays silent.
 
 use crate::freshness::{FieldProvenance, FreshnessPolicy, TimedField};
 use crate::fusion::{FieldUpdate, fuse};
