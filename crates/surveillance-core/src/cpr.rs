@@ -180,22 +180,18 @@ struct TimedCprFrame {
 pub(crate) struct CprHistory {
     even: Option<TimedCprFrame>,
     odd: Option<TimedCprFrame>,
-    newest_is_even: bool,
 }
 
 impl CprHistory {
     /// Retain `frame` as the newest of its parity.
     pub(crate) fn record(&mut self, frame: CprFrame, at_micros: u64) {
         let timed = TimedCprFrame { frame, at_micros };
-        match frame.format {
-            CprFormat::Even => {
-                self.even = Some(timed);
-                self.newest_is_even = true;
-            }
-            CprFormat::Odd => {
-                self.odd = Some(timed);
-                self.newest_is_even = false;
-            }
+        let retained = match frame.format {
+            CprFormat::Even => &mut self.even,
+            CprFormat::Odd => &mut self.odd,
+        };
+        if retained.is_none_or(|current| frame_order(timed) > frame_order(current)) {
+            *retained = Some(timed);
         }
     }
 
@@ -216,8 +212,16 @@ impl CprHistory {
             });
         }
 
-        global::decode(even.frame, odd.frame, self.newest_is_even)
+        global::decode(even.frame, odd.frame, even.at_micros >= odd.at_micros)
     }
+}
+
+fn frame_order(timed: TimedCprFrame) -> (u64, u32, u32) {
+    (
+        timed.at_micros,
+        timed.frame.encoded_latitude,
+        timed.frame.encoded_longitude,
+    )
 }
 
 /// Reject a decode that implies travel the target could not have made.
