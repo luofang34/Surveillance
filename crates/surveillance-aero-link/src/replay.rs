@@ -58,7 +58,11 @@ pub const MAX_RECORD_LINE_BYTES: usize = 1 << 20;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ReceptionOutcome {
     /// The reception carried traffic, and one observation reached the engine.
-    Ingested,
+    Ingested {
+        /// Supplied fields that the engine rejected while it accepted other
+        /// content from the observation.
+        rejected_fields: u8,
+    },
     /// The reception carried no traffic, so engine state did not change.
     ///
     /// This is the usual result for a ground uplink, and it is not a failure.
@@ -70,8 +74,8 @@ pub enum ReceptionOutcome {
 
 /// Tally of what one reception stream did to the engine.
 ///
-/// [`Self::receptions_consumed`] is always the sum of the three other
-/// counters, because each reception has exactly one outcome.
+/// [`Self::receptions_consumed`] is always the sum of the three reception
+/// outcome counters. Field rejection is an additional diagnostic count.
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ReplayCounts {
@@ -84,6 +88,9 @@ pub struct ReplayCounts {
     pub receptions_skipped_not_traffic: u64,
     /// Traffic receptions the adapter refused to normalize.
     pub receptions_refused: u64,
+    /// Supplied fields the engine rejected during otherwise successful
+    /// observation ingestion.
+    pub fields_rejected: u64,
 }
 
 impl ReplayCounts {
@@ -94,7 +101,12 @@ impl ReplayCounts {
     pub fn record(&mut self, outcome: &ReceptionOutcome) {
         self.receptions_consumed = self.receptions_consumed.wrapping_add(1);
         let counter = match outcome {
-            ReceptionOutcome::Ingested => &mut self.observations_produced,
+            ReceptionOutcome::Ingested { rejected_fields } => {
+                self.fields_rejected = self
+                    .fields_rejected
+                    .wrapping_add(u64::from(*rejected_fields));
+                &mut self.observations_produced
+            }
             ReceptionOutcome::NotTraffic => &mut self.receptions_skipped_not_traffic,
             ReceptionOutcome::Refused(_) => &mut self.receptions_refused,
         };
@@ -126,8 +138,10 @@ pub fn ingest_event(
         Ok(observation) => observation,
         Err(error) => return Ok(ReceptionOutcome::Refused(error)),
     };
-    engine.ingest(observation, on_delta)?;
-    Ok(ReceptionOutcome::Ingested)
+    let outcome = engine.ingest(observation, on_delta)?;
+    Ok(ReceptionOutcome::Ingested {
+        rejected_fields: outcome.rejected_field_count(),
+    })
 }
 
 /// Report whether a refusal ends the stream or only one reception.

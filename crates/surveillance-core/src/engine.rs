@@ -15,6 +15,9 @@ use crate::track::{
     TrackSnapshotHandle, TrackState,
 };
 
+pub use outcome::{
+    FieldDisposition, FieldOutcomes, IngestOutcome, PositionDisposition, PositionRejection,
+};
 use position::PositionContext;
 pub use publication::SnapshotPublicationError;
 use publication::SnapshotPublisher;
@@ -22,6 +25,7 @@ use publication::SnapshotPublisher;
 mod ingest;
 mod lifecycle;
 mod merge;
+mod outcome;
 mod position;
 mod publication;
 
@@ -107,7 +111,7 @@ impl SurveillanceEngine {
         &mut self,
         observation: TrafficObservation,
         mut on_delta: impl FnMut(&TrackDelta),
-    ) -> Result<(), IngestError> {
+    ) -> Result<IngestOutcome, IngestError> {
         let (id, created) = self.resolve_track(&observation)?;
         let policy = self.config.freshness;
         let context = PositionContext {
@@ -116,21 +120,17 @@ impl SurveillanceEngine {
             reference: self.reference,
         };
         let Some(state) = self.tracks.get_mut(&id) else {
-            return Ok(());
+            return Err(IngestError::TrackStateMissing { id });
         };
         let publisher = SnapshotPublisher::new(self.producer_instance_id);
         publisher.ensure_capacity(state, 1)?;
 
-        let field_changes = ingest::apply_fields(&mut state.snapshot, &observation, &policy);
-        let position_update = position::apply(state, &observation, context);
-        let mut snapshot_changed = field_changes.was_applied() || position_update.was_applied();
-        let mut meaningful = field_changes.is_meaningful() || position_update.is_meaningful();
+        let field_outcomes = ingest::apply_fields(&mut state.snapshot, &observation, &policy);
+        let position_result = position::apply(state, &observation, context);
+        let mut snapshot_changed = field_outcomes.was_applied() || position_result.was_applied();
+        let mut meaningful = field_outcomes.is_meaningful() || position_result.is_meaningful();
 
         state.mark_identity_seen(observation.key, observation.time.received_at_micros);
-        // Liveness ages from when the target was observed, not from when the
-        // report reached us. A provider with honest latency would otherwise
-        // keep a track Active on a position already older than its coasting
-        // window, which is exactly what the time model exists to prevent.
         let observed_at = observation.time.observed_at_micros;
         if observed_at > state.snapshot.last_observed_at_micros {
             state.snapshot.last_observed_at_micros = observed_at;
@@ -142,6 +142,7 @@ impl SurveillanceEngine {
             meaningful = true;
         }
 
+        let delta_emitted = created || meaningful;
         if created {
             let delta = TrackDelta::Created(publisher.snapshot(state)?);
             on_delta(&delta);
@@ -152,10 +153,16 @@ impl SurveillanceEngine {
             publisher.revise(state)?;
         }
 
-        if position_update != FieldUpdate::Rejected {
+        if position_result.update != FieldUpdate::Rejected {
             self.correlate(id, observation.time.received_at_micros, &mut on_delta)?;
         }
-        Ok(())
+        Ok(IngestOutcome::new(
+            id,
+            created,
+            position_result.disposition,
+            field_outcomes,
+            delta_emitted,
+        ))
     }
 
     /// Compare one track against every peer it may correlate with, fold the
@@ -381,6 +388,12 @@ pub enum IngestError {
     TrackCapacityExceeded {
         /// Configured [`EngineConfig::max_tracks`] bound.
         capacity: usize,
+    },
+    /// The key index selected a track state that is not present.
+    #[error("track state {id:?} is missing")]
+    TrackStateMissing {
+        /// Missing track identity.
+        id: TrackId,
     },
     /// The engine cannot publish the resulting track state.
     #[error("publishing the track state failed")]

@@ -131,6 +131,7 @@ fn report_counts(counts: ReplayCounts, producer_instance_id: ProducerInstanceId)
         observations_produced = counts.observations_produced,
         receptions_skipped_not_traffic = counts.receptions_skipped_not_traffic,
         receptions_refused = counts.receptions_refused,
+        fields_rejected = counts.fields_rejected,
         "replay complete"
     );
 }

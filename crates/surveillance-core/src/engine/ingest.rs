@@ -7,6 +7,7 @@
 //! so a delta-only consumer keeps current provenance. Repeated content from
 //! one source stays silent.
 
+use crate::engine::{FieldDisposition, FieldOutcomes};
 use crate::freshness::{FieldProvenance, FreshnessPolicy, TimedField};
 use crate::fusion::{FieldUpdate, fuse};
 use crate::observation::TrafficObservation;
@@ -18,47 +19,87 @@ pub(crate) fn apply_fields(
     snapshot: &mut TrackSnapshot,
     observation: &TrafficObservation,
     policy: &FreshnessPolicy,
-) -> FieldChanges {
-    let mut changes = apply_altitudes(snapshot, observation, policy);
-    changes.include(apply_velocity(snapshot, observation, policy));
-    changes.merge(apply_identity(snapshot, observation, policy));
-    changes.merge(apply_status(snapshot, observation, policy));
-    changes
-}
-
-/// Changes to exported fields from one observation.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(crate) struct FieldChanges {
-    applied: bool,
-    meaningful: bool,
-}
-
-impl FieldChanges {
-    pub(crate) fn include(&mut self, update: FieldUpdate) {
-        self.applied |= update.was_applied();
-        self.meaningful |= update.is_meaningful();
-    }
-
-    pub(crate) fn merge(&mut self, other: Self) {
-        self.applied |= other.applied;
-        self.meaningful |= other.meaningful;
-    }
-
-    pub(crate) fn was_applied(self) -> bool {
-        self.applied
-    }
-
-    pub(crate) fn is_meaningful(self) -> bool {
-        self.meaningful
+) -> FieldOutcomes {
+    FieldOutcomes {
+        pressure_altitude_ft: observation.pressure_altitude_ft.map_or(
+            FieldDisposition::NotSupplied,
+            |value| {
+                disposition(fuse(
+                    &mut snapshot.pressure_altitude_ft,
+                    timed(observation, value),
+                    policy.position_fresh_micros,
+                ))
+            },
+        ),
+        geometric_altitude_ft: observation.geometric_altitude_ft.map_or(
+            FieldDisposition::NotSupplied,
+            |value| {
+                disposition(fuse(
+                    &mut snapshot.geometric_altitude_ft,
+                    timed(observation, value),
+                    policy.position_fresh_micros,
+                ))
+            },
+        ),
+        velocity: apply_velocity(snapshot, observation, policy),
+        callsign: apply_callsign(snapshot, observation, policy),
+        squawk: observation
+            .squawk
+            .map_or(FieldDisposition::NotSupplied, |value| {
+                disposition(fuse(
+                    &mut snapshot.squawk,
+                    timed(observation, value),
+                    policy.identity_fresh_micros,
+                ))
+            }),
+        air_ground: observation
+            .air_ground
+            .map_or(FieldDisposition::NotSupplied, |value| {
+                disposition(fuse(
+                    &mut snapshot.air_ground,
+                    timed(observation, value),
+                    policy.identity_fresh_micros,
+                ))
+            }),
+        emergency: observation
+            .emergency
+            .map_or(FieldDisposition::NotSupplied, |value| {
+                disposition(fuse(
+                    &mut snapshot.emergency,
+                    timed(observation, value),
+                    policy.identity_fresh_micros,
+                ))
+            }),
+        emitter_category: observation.emitter_category.map_or(
+            FieldDisposition::NotSupplied,
+            |value| {
+                disposition(fuse(
+                    &mut snapshot.emitter_category,
+                    timed(observation, value),
+                    policy.identity_fresh_micros,
+                ))
+            },
+        ),
+        adsb_integrity: FieldDisposition::NotSupplied,
+        adsb_position_integrity: FieldDisposition::NotSupplied,
     }
 }
 
 /// Bind one measured value to the observation that supplied it.
 pub(crate) fn timed<T>(observation: &TrafficObservation, value: T) -> TimedField<T> {
+    timed_with_quality(observation, value, observation.quality)
+}
+
+/// Bind one value to its observation with derived quality.
+pub(crate) fn timed_with_quality<T>(
+    observation: &TrafficObservation,
+    value: T,
+    quality: crate::freshness::FieldQuality,
+) -> TimedField<T> {
     TimedField::new(
         value,
         observation.time,
-        observation.quality,
+        quality,
         FieldProvenance::new(
             observation.origin,
             observation.key.namespace,
@@ -67,86 +108,36 @@ pub(crate) fn timed<T>(observation: &TrafficObservation, value: T) -> TimedField
     )
 }
 
-fn apply_altitudes(
-    snapshot: &mut TrackSnapshot,
-    observation: &TrafficObservation,
-    policy: &FreshnessPolicy,
-) -> FieldChanges {
-    let mut changes = FieldChanges::default();
-    if let Some(altitude) = observation.pressure_altitude_ft {
-        changes.include(fuse(
-            &mut snapshot.pressure_altitude_ft,
-            timed(observation, altitude),
-            policy.position_fresh_micros,
-        ));
-    }
-    if let Some(altitude) = observation.geometric_altitude_ft {
-        changes.include(fuse(
-            &mut snapshot.geometric_altitude_ft,
-            timed(observation, altitude),
-            policy.position_fresh_micros,
-        ));
-    }
-    changes
-}
-
 fn apply_velocity(
     snapshot: &mut TrackSnapshot,
     observation: &TrafficObservation,
     policy: &FreshnessPolicy,
-) -> FieldUpdate {
+) -> FieldDisposition {
     let Some(velocity) = observation.velocity else {
-        return FieldUpdate::Rejected;
+        return FieldDisposition::NotSupplied;
     };
-    fuse(
+    disposition(fuse(
         &mut snapshot.velocity,
         timed(observation, velocity),
         policy.velocity_fresh_micros,
-    )
+    ))
 }
 
-fn apply_identity(
+fn apply_callsign(
     snapshot: &mut TrackSnapshot,
     observation: &TrafficObservation,
     policy: &FreshnessPolicy,
-) -> FieldChanges {
-    let mut changes = FieldChanges::default();
-    if let Some(callsign) = observation.callsign.as_ref() {
-        changes.include(fuse(
-            &mut snapshot.callsign,
-            timed(observation, callsign.clone()),
-            policy.identity_fresh_micros,
-        ));
-    }
-    if let Some(squawk) = observation.squawk {
-        changes.include(fuse(
-            &mut snapshot.squawk,
-            timed(observation, squawk),
-            policy.identity_fresh_micros,
-        ));
-    }
-    changes
+) -> FieldDisposition {
+    let Some(callsign) = observation.callsign.as_ref() else {
+        return FieldDisposition::NotSupplied;
+    };
+    disposition(fuse(
+        &mut snapshot.callsign,
+        timed(observation, callsign.clone()),
+        policy.identity_fresh_micros,
+    ))
 }
 
-fn apply_status(
-    snapshot: &mut TrackSnapshot,
-    observation: &TrafficObservation,
-    policy: &FreshnessPolicy,
-) -> FieldChanges {
-    let mut changes = FieldChanges::default();
-    if let Some(air_ground) = observation.air_ground {
-        changes.include(fuse(
-            &mut snapshot.air_ground,
-            timed(observation, air_ground),
-            policy.identity_fresh_micros,
-        ));
-    }
-    if let Some(emergency) = observation.emergency {
-        changes.include(fuse(
-            &mut snapshot.emergency,
-            timed(observation, emergency),
-            policy.identity_fresh_micros,
-        ));
-    }
-    changes
+fn disposition(update: FieldUpdate) -> FieldDisposition {
+    FieldDisposition::from_update(update)
 }
