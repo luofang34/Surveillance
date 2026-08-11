@@ -285,7 +285,8 @@ fn a_stream_that_fails_to_read_reports_a_transport_fault() {
         fn consume(&mut self, _: usize) {}
     }
 
-    let mut engine = SurveillanceEngine::new(EngineConfig::default(), ProducerInstanceId::new(1));
+    let mut engine = SurveillanceEngine::new(EngineConfig::default(), ProducerInstanceId::new(1))
+        .expect("default config is valid");
     let error = replay_records(BrokenStream, &mut engine, |_| {}, |_, _| {})
         .expect_err("a broken stream is an error");
 

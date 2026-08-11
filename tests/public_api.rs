@@ -41,7 +41,8 @@ fn the_module_style_path_stays_available() {
 /// the same.
 #[test]
 fn a_non_radio_source_can_drive_the_engine() {
-    let mut engine = SurveillanceEngine::new(EngineConfig::default(), PRODUCER);
+    let mut engine = SurveillanceEngine::new(EngineConfig::default(), PRODUCER)
+        .expect("default config is valid");
     let provider = SourceRef::new(9, 0, DeliveryPath::NetworkProvider);
     let key = TrackKey::new(AddressNamespace::Icao, 0x00AC_82EC);
     let mut deltas = Vec::new();
@@ -87,7 +88,8 @@ fn a_non_radio_source_can_drive_the_engine() {
 /// observations, so a non-radio source coasts and expires like any other.
 #[test]
 fn a_non_radio_track_coasts_and_expires_on_the_callers_clock() {
-    let mut engine = SurveillanceEngine::new(EngineConfig::default(), PRODUCER);
+    let mut engine = SurveillanceEngine::new(EngineConfig::default(), PRODUCER)
+        .expect("default config is valid");
     let key = TrackKey::new(AddressNamespace::Icao, 0x0040_621D);
     engine
         .ingest(
@@ -124,7 +126,8 @@ fn a_non_radio_track_coasts_and_expires_on_the_callers_clock() {
 /// Nothing about it resembles a radio, and the engine does not care.
 #[test]
 fn an_installed_panel_drives_the_engine_under_its_own_origin() {
-    let mut engine = SurveillanceEngine::new(EngineConfig::default(), PRODUCER);
+    let mut engine = SurveillanceEngine::new(EngineConfig::default(), PRODUCER)
+        .expect("default config is valid");
     let panel = SourceRef::new(2, 0, DeliveryPath::InstalledAvionics);
     let key = TrackKey::new(AddressNamespace::Icao, 0x0040_621D);
 
@@ -161,7 +164,8 @@ fn an_installed_panel_drives_the_engine_under_its_own_origin() {
 /// tell, and no reason to.
 #[test]
 fn a_simulated_source_is_tracked_like_any_other() {
-    let mut engine = SurveillanceEngine::new(EngineConfig::default(), PRODUCER);
+    let mut engine = SurveillanceEngine::new(EngineConfig::default(), PRODUCER)
+        .expect("default config is valid");
     let key = TrackKey::new(AddressNamespace::SelfAssigned, 0x0000_0001);
     let simulator = SourceRef::new(3, 0, DeliveryPath::Simulator);
     let mut observation = TrafficObservation::new(
@@ -190,7 +194,8 @@ fn a_simulated_source_is_tracked_like_any_other() {
 /// already past its coasting window.
 #[test]
 fn a_provider_with_honest_latency_coasts_on_measurement_time() {
-    let mut engine = SurveillanceEngine::new(EngineConfig::default(), PRODUCER);
+    let mut engine = SurveillanceEngine::new(EngineConfig::default(), PRODUCER)
+        .expect("default config is valid");
     let provider = SourceRef::new(4, 0, DeliveryPath::NetworkProvider);
     let key = TrackKey::new(AddressNamespace::Icao, 0x00AC_82EC);
     let latency = 30_000_000;
@@ -236,7 +241,8 @@ fn a_provider_with_honest_latency_coasts_on_measurement_time() {
 /// and one this test deliberately does not answer.
 #[test]
 fn an_unknown_source_time_does_not_grant_indefinite_liveness() {
-    let mut engine = SurveillanceEngine::new(EngineConfig::default(), PRODUCER);
+    let mut engine = SurveillanceEngine::new(EngineConfig::default(), PRODUCER)
+        .expect("default config is valid");
     let key = TrackKey::new(AddressNamespace::Icao, 0x0040_621D);
     let remove_after = engine.config().freshness.remove_after_micros;
 
@@ -286,7 +292,7 @@ fn three_sources(key: TrackKey) -> [TrafficObservation; 3] {
         ObservationOrigin::ProviderFused,
         key,
     );
-    from_provider.quality = FieldQuality::new(Some(9), Some(9), Some(9), Some(3));
+    from_provider.quality = FieldQuality::new(Some(9), Some(9), Some(4), Some(3));
     from_provider.position = Some(PositionObservation::Decoded(Wgs84Position {
         latitude_deg: 40.100,
         longitude_deg: -74.0,
@@ -322,7 +328,8 @@ fn three_sources(key: TrackKey) -> [TrafficObservation; 3] {
 
 #[test]
 fn one_target_seen_through_a_radio_a_provider_and_a_panel() {
-    let mut engine = SurveillanceEngine::new(EngineConfig::default(), PRODUCER);
+    let mut engine = SurveillanceEngine::new(EngineConfig::default(), PRODUCER)
+        .expect("default config is valid");
     let key = TrackKey::new(AddressNamespace::Icao, 0x00AC_82EC);
 
     for observation in three_sources(key) {

@@ -9,12 +9,13 @@ use crate::association::{self, CorrelationPolicy};
 use crate::cpr::CprPolicy;
 use crate::freshness::FreshnessPolicy;
 use crate::fusion::FieldUpdate;
-use crate::observation::{TrafficObservation, Wgs84Position};
+use crate::observation::{InvalidObservation, InvalidPosition, TrafficObservation, Wgs84Position};
 use crate::track::{
     ProducerInstanceId, TrackDelta, TrackId, TrackKey, TrackPhase, TrackSnapshot,
     TrackSnapshotHandle, TrackState,
 };
 
+pub use configuration::EngineConfigError;
 pub use outcome::{
     FieldDisposition, FieldOutcomes, IngestOutcome, PositionDisposition, PositionRejection,
 };
@@ -23,6 +24,7 @@ pub use publication::SnapshotPublicationError;
 use publication::SnapshotPublisher;
 
 mod classification;
+mod configuration;
 mod ingest;
 mod integrity;
 mod lifecycle;
@@ -101,9 +103,17 @@ impl SurveillanceEngine {
     /// The caller must supply a new `producer_instance_id` for each engine
     /// construction. The core has no clock, random source, or global identity
     /// registry from which it can make this value.
-    #[must_use]
-    pub fn new(config: EngineConfig, producer_instance_id: ProducerInstanceId) -> Self {
-        Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EngineConfigError`] when a policy or capacity value cannot
+    /// produce defined tracking behavior.
+    pub fn new(
+        config: EngineConfig,
+        producer_instance_id: ProducerInstanceId,
+    ) -> Result<Self, EngineConfigError> {
+        config.validate()?;
+        Ok(Self {
             config,
             producer_instance_id,
             tracks: BTreeMap::new(),
@@ -111,7 +121,7 @@ impl SurveillanceEngine {
             ownship: Vec::new(),
             reference: None,
             next_id: 0,
-        }
+        })
     }
 
     /// Tuning the engine was created with.
@@ -136,6 +146,12 @@ impl SurveillanceEngine {
         observation: TrafficObservation,
         mut on_delta: impl FnMut(&TrackDelta),
     ) -> Result<IngestOutcome, IngestError> {
+        observation
+            .validate()
+            .map_err(|source| IngestError::InvalidObservation {
+                key: observation.key,
+                source,
+            })?;
         let classified_key = observation
             .emitter_category
             .and_then(|category| classification::classified_key(observation.key, category));
@@ -357,8 +373,19 @@ impl SurveillanceEngine {
     ///
     /// A track's own fresh position always takes precedence. Passing `None`
     /// withdraws the reference, after which such frames simply do not decode.
-    pub fn set_reference_position(&mut self, reference: Option<Wgs84Position>) {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InvalidPosition`] when `reference` is not a WGS84 point.
+    pub fn set_reference_position(
+        &mut self,
+        reference: Option<Wgs84Position>,
+    ) -> Result<(), InvalidPosition> {
+        if let Some(position) = reference {
+            position.validate()?;
+        }
         self.reference = reference;
+        Ok(())
     }
 
     /// Reference position reference-dependent frames resolve against.
@@ -400,8 +427,17 @@ impl SurveillanceEngine {
 
 /// Failure applying one observation.
 #[non_exhaustive]
-#[derive(Clone, Copy, Debug, Eq, Error, PartialEq)]
+#[derive(Clone, Copy, Debug, Error, PartialEq)]
 pub enum IngestError {
+    /// The canonical observation violates an engine input invariant.
+    #[error("observation for {key:?} is invalid")]
+    InvalidObservation {
+        /// Identity reported by the rejected observation.
+        key: TrackKey,
+        /// Canonical value validation failure.
+        #[source]
+        source: InvalidObservation,
+    },
     /// The configured track bound is exhausted and the observation names a
     /// new target.
     #[error("track capacity {capacity} exhausted")]

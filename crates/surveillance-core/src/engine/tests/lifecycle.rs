@@ -197,7 +197,8 @@ fn each_field_ages_on_its_own_window() {
             ..EngineConfig::default()
         },
         PRODUCER,
-    );
+    )
+    .expect("test config is valid");
 
     let mut positioned = observation(
         0,

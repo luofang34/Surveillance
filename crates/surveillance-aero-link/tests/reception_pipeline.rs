@@ -43,7 +43,8 @@ fn ground_uplink() -> ReceptionEvent {
 /// its traffic subset, normalize it, and feed the engine.
 #[test]
 fn receptions_become_tracks_through_the_documented_caller_pattern() {
-    let mut engine = SurveillanceEngine::new(EngineConfig::default(), ProducerInstanceId::new(1));
+    let mut engine = SurveillanceEngine::new(EngineConfig::default(), ProducerInstanceId::new(1))
+        .expect("default config is valid");
     let source = ReceiverSource::new(1, SourceTransport::Usb);
     let mut deltas = Vec::new();
 
@@ -85,7 +86,8 @@ fn receptions_become_tracks_through_the_documented_caller_pattern() {
 /// carrying both traffic and weather changes engine state only for traffic.
 #[test]
 fn a_mixed_stream_admits_traffic_and_silently_skips_weather() {
-    let mut engine = SurveillanceEngine::new(EngineConfig::default(), ProducerInstanceId::new(1));
+    let mut engine = SurveillanceEngine::new(EngineConfig::default(), ProducerInstanceId::new(1))
+        .expect("default config is valid");
     let source = ReceiverSource::new(2, SourceTransport::Usb);
 
     let stream = [

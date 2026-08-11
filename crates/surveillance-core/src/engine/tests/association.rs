@@ -395,7 +395,8 @@ fn a_merged_track_demotes_when_its_cooperative_source_stops() {
 #[test]
 fn a_merge_is_independent_of_which_side_reports_first() {
     fn merged_survivor(icao_first: bool) -> (usize, TrackId) {
-        let mut engine = SurveillanceEngine::new(EngineConfig::default(), PRODUCER);
+        let mut engine = SurveillanceEngine::new(EngineConfig::default(), PRODUCER)
+            .expect("default config is valid");
         let (first, second) = if icao_first {
             (ICAO, TRACK_FILE)
         } else {

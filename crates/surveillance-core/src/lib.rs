@@ -36,9 +36,9 @@ pub mod track;
 pub use association::{CorrelationPolicy, agrees, may_correlate, namespace_rank};
 pub use cpr::{CprDecodeError, CprFormat, CprFrame, CprFrameError, CprPolicy};
 pub use engine::{
-    DEFAULT_MAX_TRACK_KEYS, DEFAULT_MAX_TRACKS, EngineConfig, FieldDisposition, FieldOutcomes,
-    IngestError, IngestOutcome, PositionDisposition, PositionRejection, SnapshotPublicationError,
-    SurveillanceEngine,
+    DEFAULT_MAX_TRACK_KEYS, DEFAULT_MAX_TRACKS, EngineConfig, EngineConfigError, FieldDisposition,
+    FieldOutcomes, IngestError, IngestOutcome, PositionDisposition, PositionRejection,
+    SnapshotPublicationError, SurveillanceEngine,
 };
 pub use freshness::{FieldProvenance, FieldQuality, FreshnessPolicy, TimedField};
 pub use fusion::{FieldUpdate, fuse, origin_rank};
@@ -46,8 +46,9 @@ pub use identity::IdentitySet;
 pub use observation::{
     AdsbIntegrityDeclaration, AdsbPositionIntegrity, AdsbPositionKind, AdsbVersion, AirGroundState,
     AirspeedKind, Callsign, CallsignKind, EmergencyState, EmitterCategory, HeadingReference,
-    InvalidAdsbIntegrityDeclaration, InvalidAdsbPositionIntegrity, InvalidSquawk,
-    ObservationOrigin, ObservationTime, PositionObservation, Squawk, TimeBasis, TrafficObservation,
+    InvalidAdsbIntegrityDeclaration, InvalidAdsbPositionIntegrity, InvalidObservation,
+    InvalidPosition, InvalidSquawk, InvalidVelocity, ObservationOrigin, ObservationTime,
+    PositionObservation, QualityIndicator, Squawk, TimeBasis, TrafficObservation,
     VelocityObservation, VerticalRateSource, Wgs84Position,
 };
 pub use schema::{

@@ -14,6 +14,7 @@ use crate::track::{AddressNamespace, ProducerInstanceId, TrackDelta, TrackId, Tr
 
 mod association;
 mod classification;
+mod configuration;
 mod integrity;
 mod lifecycle;
 mod position;
@@ -32,7 +33,7 @@ pub(super) fn observation(at: u64, key: TrackKey, origin: ObservationOrigin) -> 
 }
 
 pub(super) fn engine() -> SurveillanceEngine {
-    SurveillanceEngine::new(EngineConfig::default(), PRODUCER)
+    SurveillanceEngine::new(EngineConfig::default(), PRODUCER).expect("default config is valid")
 }
 
 pub(super) fn ingest(
@@ -59,6 +60,40 @@ fn default_configuration_bounds_tracks_and_keys() {
     let config = EngineConfig::default();
     assert_eq!(config.max_tracks, Some(DEFAULT_MAX_TRACKS));
     assert_eq!(config.max_track_keys, Some(DEFAULT_MAX_TRACK_KEYS));
+}
+
+#[test]
+fn invalid_observation_and_reference_positions_do_not_change_state() {
+    let mut engine = engine();
+    let mut invalid = observation(1_000, ICAO, ObservationOrigin::ModeSReply);
+    invalid.position = Some(crate::observation::PositionObservation::Decoded(
+        crate::observation::Wgs84Position {
+            latitude_deg: f64::NAN,
+            longitude_deg: 0.0,
+        },
+    ));
+
+    let outcome = engine.ingest(invalid, |_| {
+        panic!("a rejected observation must emit nothing")
+    });
+    assert!(matches!(
+        outcome,
+        Err(IngestError::InvalidObservation {
+            source: crate::observation::InvalidObservation::Position { .. },
+            ..
+        })
+    ));
+    assert_eq!(engine.track_count(), 0);
+
+    let reference = crate::observation::Wgs84Position {
+        latitude_deg: 0.0,
+        longitude_deg: f64::INFINITY,
+    };
+    assert!(matches!(
+        engine.set_reference_position(Some(reference)),
+        Err(crate::observation::InvalidPosition::LongitudeNotFinite { .. })
+    ));
+    assert_eq!(engine.reference_position(), None);
 }
 
 #[test]
@@ -308,7 +343,8 @@ fn track_capacity_is_enforced_without_disturbing_existing_tracks() {
             ..EngineConfig::default()
         },
         PRODUCER,
-    );
+    )
+    .expect("test config is valid");
 
     ingest(
         &mut engine,
@@ -359,7 +395,8 @@ fn track_key_capacity_rejects_all_keys_before_track_creation() {
             ..EngineConfig::default()
         },
         PRODUCER,
-    );
+    )
+    .expect("test config is valid");
     let wire_key = TrackKey::new(AddressNamespace::AdsbNonIcao, 0x0012_3456);
     let mut observed = observation(
         1_000,
