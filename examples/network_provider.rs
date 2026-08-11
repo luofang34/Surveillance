@@ -1,9 +1,8 @@
-//! Track traffic from a network provider, with no radio anywhere in sight.
+//! Track traffic from a network provider without a radio decoder.
 //!
-//! This example imports no link decoder. It exists to demonstrate that the
-//! engine's contract is genuinely source-neutral: a provider, an installed
-//! panel, or a simulator supplies canonical observations directly, and gets
-//! the same tracking, fusion, and lifecycle a receiver would.
+//! This example imports no link decoder. A provider supplies canonical
+//! observations directly. The engine applies the same tracking, fusion, and
+//! lifecycle behavior to all input sources.
 //!
 //! Run it with `cargo run --example network_provider`.
 
@@ -12,8 +11,10 @@ use surveillance::{
     PositionObservation, ProducerInstanceId, SourceRef, SurveillanceEngine, TrackDelta, TrackKey,
     TrafficObservation, Wgs84Position,
 };
+use tracing::{info, warn};
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    tracing_subscriber::fmt().with_ansi(false).try_init()?;
     let mut engine = SurveillanceEngine::new(EngineConfig::default(), ProducerInstanceId::new(1))?;
 
     // A provider reached over the network, on its first connection.
@@ -37,21 +38,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let outcome = engine.ingest(observation, |delta| match delta {
             TrackDelta::Created(snapshot) => {
-                println!("created  track {}", snapshot.id.get());
+                info!(track_id = snapshot.id.get(), "created track");
             }
             TrackDelta::Updated(snapshot) => match snapshot.position.as_ref() {
-                Some(position) => println!(
-                    "updated  track {} at {:.3}, {:.3}",
-                    snapshot.id.get(),
-                    position.value.latitude_deg,
-                    position.value.longitude_deg
+                Some(position) => info!(
+                    track_id = snapshot.id.get(),
+                    latitude_deg = position.value.latitude_deg,
+                    longitude_deg = position.value.longitude_deg,
+                    "updated track"
                 ),
-                None => println!("updated  track {} (position absent)", snapshot.id.get()),
+                None => info!(
+                    track_id = snapshot.id.get(),
+                    "updated position-absent track"
+                ),
             },
-            other => println!("{other:?}"),
+            other => info!(delta = ?other, "track lifecycle changed"),
         });
         if let Err(error) = outcome {
-            println!("provider observation refused: {error}");
+            warn!(%error, "provider observation refused");
         }
     }
 
@@ -59,10 +63,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let quiet_for_a_while = 1_000_000 + 30_000_000;
     engine.advance_time(quiet_for_a_while, |delta| {
         if let TrackDelta::Coasting(snapshot) = delta {
-            println!("coasting track {}", snapshot.id.get());
+            info!(track_id = snapshot.id.get(), "track is coasting");
         }
     })?;
 
-    println!("{} track(s) maintained", engine.track_count());
+    info!(track_count = engine.track_count(), "tracking complete");
     Ok(())
 }
