@@ -1,12 +1,13 @@
 //! Optional RFC 7946 serialization.
 
+use alloc::format;
 use alloc::string::String;
 
 use serde::Serialize;
 use surveillance_core::{ProducerInstanceId, SnapshotRevision, TrackId, TrackSnapshot};
 use thiserror::Error;
 
-use crate::{AircraftFeature, FeatureDelta};
+use crate::{AircraftFeature, FeatureDelta, FeatureId};
 
 #[cfg(test)]
 mod tests;
@@ -49,7 +50,7 @@ pub fn encode_feature_delta(delta: &FeatureDelta) -> Result<String, GeoJsonError
 struct GeoJsonFeature<'a> {
     #[serde(rename = "type")]
     feature_type: &'static str,
-    id: TrackId,
+    id: String,
     geometry: Option<PointGeometry>,
     properties: FeatureProperties<'a>,
 }
@@ -58,19 +59,29 @@ impl<'a> GeoJsonFeature<'a> {
     fn from_delta(delta: &'a FeatureDelta) -> Result<Self, GeoJsonError> {
         match delta {
             FeatureDelta::Upsert(feature) => Self::upsert(feature),
-            FeatureDelta::Stale { id } => Ok(Self {
+            FeatureDelta::Stale { id, revision } => Ok(Self {
                 feature_type: "Feature",
-                id: *id,
+                id: encode_feature_id(*id),
                 geometry: None,
-                properties: FeatureProperties::Stale(OperationProperties { operation: "stale" }),
+                properties: FeatureProperties::Stale(OperationProperties {
+                    operation: "stale",
+                    producer_instance_id: id.producer_instance_id(),
+                    snapshot_revision: *revision,
+                }),
             }),
-            FeatureDelta::Remove { id, transfer_to } => Ok(Self {
+            FeatureDelta::Remove {
+                id,
+                revision,
+                transfer_to,
+            } => Ok(Self {
                 feature_type: "Feature",
-                id: *id,
+                id: encode_feature_id(*id),
                 geometry: None,
                 properties: FeatureProperties::Remove(RemoveProperties {
                     operation: "remove",
-                    transfer_to: *transfer_to,
+                    producer_instance_id: id.producer_instance_id(),
+                    snapshot_revision: *revision,
+                    transfer_to: transfer_to.map(encode_feature_id),
                 }),
             }),
         }
@@ -82,7 +93,7 @@ impl<'a> GeoJsonFeature<'a> {
 
         Ok(Self {
             feature_type: "Feature",
-            id: feature.id(),
+            id: encode_feature_id(feature.feature_id()),
             geometry: Some(PointGeometry {
                 geometry_type: "Point",
                 coordinates: [position.longitude_deg, position.latitude_deg],
@@ -95,6 +106,14 @@ impl<'a> GeoJsonFeature<'a> {
             }),
         })
     }
+}
+
+fn encode_feature_id(id: FeatureId) -> String {
+    format!(
+        "{}:{}",
+        id.producer_instance_id().get(),
+        id.track_id().get()
+    )
 }
 
 fn validate_position(
@@ -144,10 +163,14 @@ struct UpsertProperties<'a> {
 #[derive(Serialize)]
 struct OperationProperties {
     operation: &'static str,
+    producer_instance_id: ProducerInstanceId,
+    snapshot_revision: SnapshotRevision,
 }
 
 #[derive(Serialize)]
 struct RemoveProperties {
     operation: &'static str,
-    transfer_to: Option<TrackId>,
+    producer_instance_id: ProducerInstanceId,
+    snapshot_revision: SnapshotRevision,
+    transfer_to: Option<String>,
 }

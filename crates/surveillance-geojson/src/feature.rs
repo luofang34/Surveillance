@@ -8,6 +8,36 @@ use surveillance_core::{
 #[cfg(test)]
 mod tests;
 
+/// Identity of one feature across engine restarts.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct FeatureId {
+    producer_instance_id: ProducerInstanceId,
+    track_id: TrackId,
+}
+
+impl FeatureId {
+    /// Create a feature identity from its producer and track identities.
+    #[must_use]
+    pub const fn new(producer_instance_id: ProducerInstanceId, track_id: TrackId) -> Self {
+        Self {
+            producer_instance_id,
+            track_id,
+        }
+    }
+
+    /// Identity of the producer that owns this feature.
+    #[must_use]
+    pub const fn producer_instance_id(self) -> ProducerInstanceId {
+        self.producer_instance_id
+    }
+
+    /// Track identity within the producer instance.
+    #[must_use]
+    pub const fn track_id(self) -> TrackId {
+        self.track_id
+    }
+}
+
 /// One renderer-neutral change to an aircraft feature set.
 #[non_exhaustive]
 #[derive(Clone, Debug, PartialEq)]
@@ -20,15 +50,19 @@ pub enum FeatureDelta {
     Upsert(AircraftFeature),
     /// Mark an existing feature as stale without removing it.
     Stale {
-        /// Stable identity of the feature.
-        id: TrackId,
+        /// Stable identity of the feature and its producer.
+        id: FeatureId,
+        /// Revision assigned to this stale state.
+        revision: SnapshotRevision,
     },
     /// Remove an existing feature.
     Remove {
-        /// Stable identity of the feature.
-        id: TrackId,
+        /// Stable identity of the feature and its producer.
+        id: FeatureId,
+        /// Revision assigned to this removal.
+        revision: SnapshotRevision,
         /// Track that absorbed this feature, if a merge caused removal.
-        transfer_to: Option<TrackId>,
+        transfer_to: Option<FeatureId>,
     },
 }
 
@@ -48,10 +82,16 @@ impl AircraftFeature {
         Self { position, snapshot }
     }
 
-    /// Stable identity of this feature.
+    /// Track identity within the producer instance.
     #[must_use]
     pub fn id(&self) -> TrackId {
         self.snapshot.id
+    }
+
+    /// Stable identity of this feature and its producer.
+    #[must_use]
+    pub fn feature_id(&self) -> FeatureId {
+        FeatureId::new(self.producer_instance_id(), self.id())
     }
 
     /// WGS84 position with observation time, quality, and provenance.
@@ -105,12 +145,20 @@ impl AircraftFeature {
 pub fn map_track_delta(delta: &TrackDelta) -> Option<FeatureDelta> {
     match delta {
         TrackDelta::Created(snapshot) | TrackDelta::Updated(snapshot) => map_upsert(snapshot),
-        TrackDelta::Coasting(snapshot) => snapshot
-            .position
-            .map(|_| FeatureDelta::Stale { id: snapshot.id }),
-        TrackDelta::Removed { id, reason, .. } => Some(FeatureDelta::Remove {
-            id: *id,
-            transfer_to: transfer_target(*reason),
+        TrackDelta::Coasting(snapshot) => snapshot.position.map(|_| FeatureDelta::Stale {
+            id: FeatureId::new(snapshot.producer_instance_id(), snapshot.id),
+            revision: snapshot.snapshot_revision(),
+        }),
+        TrackDelta::Removed {
+            producer_instance_id,
+            snapshot_revision,
+            id,
+            reason,
+            ..
+        } => Some(FeatureDelta::Remove {
+            id: FeatureId::new(*producer_instance_id, *id),
+            revision: *snapshot_revision,
+            transfer_to: transfer_target(*producer_instance_id, *reason),
         }),
         _ => None,
     }
@@ -122,9 +170,12 @@ fn map_upsert(snapshot: &TrackSnapshotHandle) -> Option<FeatureDelta> {
         .map(|position| FeatureDelta::Upsert(AircraftFeature::new(position, snapshot.clone())))
 }
 
-fn transfer_target(reason: RemovalReason) -> Option<TrackId> {
+fn transfer_target(
+    producer_instance_id: ProducerInstanceId,
+    reason: RemovalReason,
+) -> Option<FeatureId> {
     match reason {
-        RemovalReason::Merged { into } => Some(into),
+        RemovalReason::Merged { into } => Some(FeatureId::new(producer_instance_id, into)),
         RemovalReason::Expired => None,
         _ => None,
     }
