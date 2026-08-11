@@ -76,6 +76,16 @@ fn with_speed(mut snapshot: TrackSnapshot, at: u64, knots: f64) -> TrackSnapshot
     snapshot
 }
 
+fn with_nic(mut snapshot: TrackSnapshot, nic: u8) -> TrackSnapshot {
+    snapshot
+        .position
+        .as_mut()
+        .expect("the test snapshot has a position")
+        .quality
+        .nic = Some(nic);
+    snapshot
+}
+
 #[test]
 fn a_vehicle_never_correlates_with_an_aircraft() {
     use AddressNamespace::{Icao, SelfAssigned, SurfaceVehicle, TisbTrackFile};
@@ -217,6 +227,51 @@ fn a_pair_that_cannot_be_judged_yields_no_evidence() {
 }
 
 #[test]
+fn matching_positions_without_altitude_and_speed_are_not_evidence() {
+    let policy = CorrelationPolicy::default();
+    let freshness = FreshnessPolicy::default();
+    let left = snapshot(AddressNamespace::Icao, 1_000, 40.0, -74.0);
+    let right = snapshot(AddressNamespace::TisbTrackFile, 1_000, 40.0, -74.0);
+
+    assert_eq!(agrees(&left, &right, 1_000, &policy, &freshness), None);
+}
+
+#[test]
+fn declared_integrity_can_tighten_the_position_gate() {
+    let policy = CorrelationPolicy::default();
+    let freshness = FreshnessPolicy::default();
+    let left = with_nic(
+        with_speed(
+            with_altitude(
+                snapshot(AddressNamespace::Icao, 1_000, 40.0, -74.0),
+                1_000,
+                10_000,
+            ),
+            1_000,
+            250.0,
+        ),
+        11,
+    );
+    let right = with_nic(
+        with_speed(
+            with_altitude(
+                snapshot(AddressNamespace::TisbTrackFile, 1_000, 40.001, -74.0),
+                1_000,
+                10_000,
+            ),
+            1_000,
+            250.0,
+        ),
+        11,
+    );
+
+    assert_eq!(
+        agrees(&left, &right, 1_000, &policy, &freshness),
+        Some(false)
+    );
+}
+
+#[test]
 fn one_coincidental_alignment_does_not_associate() {
     let policy = CorrelationPolicy::default();
     let mut evidence: Vec<CorrelationEvidence> = Vec::new();
@@ -224,12 +279,20 @@ fn one_coincidental_alignment_does_not_associate() {
 
     for round in 1..policy.associate_after {
         assert_eq!(
-            record(&mut evidence, &[(peer, true)], &policy),
+            record(&mut evidence, &[(peer, true)], u64::from(round), &policy),
             None,
             "round {round} must not be enough to associate"
         );
     }
-    assert_eq!(record(&mut evidence, &[(peer, true)], &policy), Some(peer));
+    assert_eq!(
+        record(
+            &mut evidence,
+            &[(peer, true)],
+            u64::from(policy.associate_after),
+            &policy,
+        ),
+        Some(peer)
+    );
 }
 
 #[test]
@@ -238,20 +301,25 @@ fn a_single_outlier_does_not_break_an_accumulating_run() {
     let mut evidence: Vec<CorrelationEvidence> = Vec::new();
     let peer = TrackId::new(2);
 
+    let mut at = 0_u64;
     for _ in 0..policy.associate_after - 1 {
-        record(&mut evidence, &[(peer, true)], &policy);
+        at = at.wrapping_add(1);
+        record(&mut evidence, &[(peer, true)], at, &policy);
     }
-    record(&mut evidence, &[(peer, false)], &policy);
+    at = at.wrapping_add(1);
+    record(&mut evidence, &[(peer, false)], at, &policy);
     assert!(
         !evidence.is_empty(),
         "one disagreement must not discard the candidate"
     );
 
     for _ in 0..policy.associate_after - 1 {
-        assert_eq!(record(&mut evidence, &[(peer, true)], &policy), None);
+        at = at.wrapping_add(1);
+        assert_eq!(record(&mut evidence, &[(peer, true)], at, &policy), None);
     }
+    at = at.wrapping_add(1);
     assert_eq!(
-        record(&mut evidence, &[(peer, true)], &policy),
+        record(&mut evidence, &[(peer, true)], at, &policy),
         Some(peer),
         "a fresh consecutive run associates"
     );
@@ -263,8 +331,8 @@ fn sustained_disagreement_discards_a_candidate() {
     let mut evidence: Vec<CorrelationEvidence> = Vec::new();
     let peer = TrackId::new(2);
 
-    for _ in 0..policy.dissociate_after {
-        record(&mut evidence, &[(peer, false)], &policy);
+    for at in 1..=policy.dissociate_after {
+        record(&mut evidence, &[(peer, false)], u64::from(at), &policy);
     }
     assert!(
         evidence.is_empty(),
@@ -276,10 +344,48 @@ fn sustained_disagreement_discards_a_candidate() {
 fn evidence_is_held_in_track_identity_order() {
     let policy = CorrelationPolicy::default();
     let mut evidence: Vec<CorrelationEvidence> = Vec::new();
-    for peer in [TrackId::new(9), TrackId::new(3), TrackId::new(5)] {
-        record(&mut evidence, &[(peer, true)], &policy);
+    for (at, peer) in [TrackId::new(9), TrackId::new(3), TrackId::new(5)]
+        .into_iter()
+        .enumerate()
+    {
+        record(&mut evidence, &[(peer, true)], at as u64 + 1, &policy);
     }
 
     let peers: Vec<u64> = evidence.iter().map(|entry| entry.peer.get()).collect();
     assert_eq!(peers, [3, 5, 9]);
+}
+
+#[test]
+fn evidence_outside_the_window_starts_a_new_run() {
+    let policy = CorrelationPolicy {
+        max_evidence_gap_micros: 10,
+        max_evidence_window_micros: 20,
+        ..CorrelationPolicy::default()
+    };
+    let mut evidence = Vec::new();
+    let peer = TrackId::new(2);
+
+    for at in [1, 2, 3] {
+        assert_eq!(record(&mut evidence, &[(peer, true)], at, &policy), None);
+    }
+    assert_eq!(record(&mut evidence, &[(peer, true)], 100, &policy), None);
+}
+
+#[test]
+fn candidate_evidence_obeys_the_configured_bound() {
+    let policy = CorrelationPolicy {
+        max_candidate_peers: 2,
+        ..CorrelationPolicy::default()
+    };
+    let mut evidence = Vec::new();
+    for (at, peer) in [TrackId::new(1), TrackId::new(2), TrackId::new(3)]
+        .into_iter()
+        .enumerate()
+    {
+        record(&mut evidence, &[(peer, true)], at as u64 + 1, &policy);
+    }
+
+    assert_eq!(evidence.len(), 2);
+    assert_eq!(evidence[0].peer, TrackId::new(2));
+    assert_eq!(evidence[1].peer, TrackId::new(3));
 }

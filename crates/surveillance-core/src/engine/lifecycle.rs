@@ -12,7 +12,7 @@
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 
-use crate::association::CorrelationPolicy;
+use crate::association::{CorrelationPolicy, forget_peer};
 use crate::engine::EngineConfig;
 use crate::engine::publication::{SnapshotPublicationError, SnapshotPublisher};
 use crate::track::{RemovalReason, TrackDelta, TrackId, TrackKey, TrackPhase, TrackState};
@@ -57,6 +57,9 @@ pub(crate) fn advance(
         let Some(mut state) = tracks.remove(&id) else {
             continue;
         };
+        for retained in tracks.values_mut() {
+            forget_peer(&mut retained.correlation, id);
+        }
         let delta = publisher.removal(&mut state, RemovalReason::Expired)?;
         release_keys(keys, &state);
         on_delta(&delta);
