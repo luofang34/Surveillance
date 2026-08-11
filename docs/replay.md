@@ -31,9 +31,21 @@ cargo run -p surveillance-replay --features geojson -- replay recording.ndjson \
 The GeoJSON stream is a diagnostic and integration format. It has no renderer.
 Pilotage owns traffic and weather composition.
 
-The application reports consumed, produced, skipped, and refused reception
-counts through `tracing`. It writes diagnostics to standard error. It writes
-the selected data stream to standard output or to the specified output file.
+The application reports consumed, produced, skipped, refused, and rejected
+field counts through `tracing`. A rejected field does not discard other valid
+fields from the same observation. The application writes diagnostics to
+standard error. It writes the selected data stream to standard output or to
+the specified output file.
 
 The application is a separate host crate. The default `surveillance` and
 `surveillance-core` builds do not include its command or encoder dependencies.
+
+## Live capture fixture
+
+The `live_receptions.ndjson` test fixture contains five receptions from one
+USB CDC radio session. It contains one UAT ground uplink and four ADS-B
+reports for one aircraft. The fixture wraps each captured event in the
+`aero-link` schema 6 envelope. It does not change the captured event payload.
+
+The replay test compares the output with `live_track_records.ndjson`. It also
+verifies that the UAT ground uplink does not enter the traffic engine.
