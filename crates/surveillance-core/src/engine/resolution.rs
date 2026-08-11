@@ -3,6 +3,7 @@
 use crate::observation::TrafficObservation;
 use crate::track::{TrackId, TrackKey, TrackSnapshot, TrackState};
 
+use super::publication::SnapshotPublisher;
 use super::{IngestError, SurveillanceEngine};
 
 impl SurveillanceEngine {
@@ -26,6 +27,11 @@ impl SurveillanceEngine {
         }
 
         if let Some(id) = observed_id.or(classified_id) {
+            let state = self
+                .tracks
+                .get(&id)
+                .ok_or(IngestError::TrackStateMissing { id })?;
+            SnapshotPublisher::new(self.producer_instance_id).ensure_capacity(state, 1)?;
             self.keys.insert(observation.key, id);
             return Ok((id, false));
         }

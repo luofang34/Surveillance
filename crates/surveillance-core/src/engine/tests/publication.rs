@@ -5,7 +5,7 @@ use alloc::vec::Vec;
 use crate::engine::tests::{ICAO, PRODUCER, advance, ingest, observation};
 use crate::engine::{EngineConfig, IngestError, SnapshotPublicationError, SurveillanceEngine};
 use crate::freshness::FreshnessPolicy;
-use crate::observation::{ObservationOrigin, Wgs84Position};
+use crate::observation::{EmitterCategory, ObservationOrigin, Wgs84Position};
 use crate::track::{ProducerInstanceId, SnapshotRevision, TrackDelta, TrackKey, TrackPhase};
 
 const OTHER: TrackKey = TrackKey::new(crate::track::AddressNamespace::Icao, 0x00AB_CDEF);
@@ -168,6 +168,35 @@ fn an_ingest_does_not_publish_a_wrapped_revision() {
         retained.snapshot_revision(),
         SnapshotRevision::new(u64::MAX)
     );
+    assert_eq!(retained.last_observed_at_micros, 0);
+}
+
+#[test]
+fn revision_exhaustion_does_not_add_a_classified_wire_alias() {
+    let mut engine = SurveillanceEngine::new(EngineConfig::default(), PRODUCER);
+    let classified = TrackKey::new(crate::AddressNamespace::SelfAssigned, 0x00AB_CDEF);
+    ingest(
+        &mut engine,
+        observation(0, classified, ObservationOrigin::ModeSReply),
+    );
+    let id = engine.snapshot(classified).expect("track exists").id;
+    engine
+        .tracks
+        .get_mut(&id)
+        .expect("track state exists")
+        .snapshot_revision = SnapshotRevision::new(u64::MAX);
+    let wire = TrackKey::new(crate::AddressNamespace::AdsbNonIcao, 0x00AB_CDEF);
+    let mut observed = observation(1, wire, ObservationOrigin::ModeSReply);
+    observed.emitter_category = Some(EmitterCategory::LightAircraft);
+
+    let error = engine
+        .ingest(observed, |_| panic!("a failed ingest must emit nothing"))
+        .expect_err("the producer instance is exhausted");
+
+    assert!(matches!(error, IngestError::SnapshotPublication { .. }));
+    assert_eq!(engine.snapshot(wire), None);
+    let retained = engine.snapshot(classified).expect("original track remains");
+    assert!(!retained.identities.contains(wire));
     assert_eq!(retained.last_observed_at_micros, 0);
 }
 
