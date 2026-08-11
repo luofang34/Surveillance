@@ -166,7 +166,8 @@ Three distinct concepts, deliberately separated:
 - `TrackId` — a stable, engine-assigned identity for one physical target.
   It never changes across re-keying, promotion, or demotion. Consumers use
   it to correlate deltas over a track's whole life. IDs increment with
-  `wrapping_add` and are never reused while a track is alive.
+  `wrapping_add`. The engine returns an error if a wrapped counter selects a
+  live identity. The caller then starts a new producer instance.
 - `TrackKey` — the current primary over-the-air identity: a numeric address
   plus its `AddressNamespace`. Keys can change during a track's life; the
   `TrackId` cannot.

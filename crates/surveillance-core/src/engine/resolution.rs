@@ -42,6 +42,9 @@ impl SurveillanceEngine {
         }
 
         let id = TrackId::new(self.next_id);
+        if self.tracks.contains_key(&id) {
+            return Err(IngestError::TrackIdentityExhausted { id });
+        }
         self.next_id = self.next_id.wrapping_add(1);
         let mut snapshot =
             TrackSnapshot::new(id, observation.key, observation.time.received_at_micros);
