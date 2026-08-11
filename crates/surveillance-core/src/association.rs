@@ -72,7 +72,7 @@ pub(crate) struct CorrelationEvidence {
     agreements: u8,
     disagreements: u8,
     run_started_at_micros: u64,
-    last_observed_at_micros: Option<u64>,
+    last_received_at_micros: Option<u64>,
 }
 
 impl CorrelationEvidence {
@@ -82,7 +82,7 @@ impl CorrelationEvidence {
             agreements: 0,
             disagreements: 0,
             run_started_at_micros: at_micros,
-            last_observed_at_micros: None,
+            last_received_at_micros: None,
         }
     }
 
@@ -90,12 +90,12 @@ impl CorrelationEvidence {
     /// disagreement each reset the other, so only consecutive runs count.
     fn observe(&mut self, agrees: bool, at_micros: u64, policy: &CorrelationPolicy) {
         if self
-            .last_observed_at_micros
+            .last_received_at_micros
             .is_some_and(|last| at_micros <= last)
         {
             return;
         }
-        if self.last_observed_at_micros.is_some_and(|last| {
+        if self.last_received_at_micros.is_some_and(|last| {
             at_micros.saturating_sub(last) > policy.max_evidence_gap_micros
                 || at_micros.saturating_sub(self.run_started_at_micros)
                     > policy.max_evidence_window_micros
@@ -115,7 +115,7 @@ impl CorrelationEvidence {
             self.agreements = 0;
             self.run_started_at_micros = at_micros;
         }
-        self.last_observed_at_micros = Some(at_micros);
+        self.last_received_at_micros = Some(at_micros);
     }
 }
 
@@ -305,7 +305,7 @@ pub(crate) fn record(
 ) -> Option<TrackId> {
     evidence.retain(|entry| {
         entry
-            .last_observed_at_micros
+            .last_received_at_micros
             .is_some_and(|last| at_micros.saturating_sub(last) <= policy.max_evidence_window_micros)
     });
 
@@ -346,7 +346,7 @@ fn make_candidate_slot(
     let Some((oldest, _)) = evidence
         .iter()
         .enumerate()
-        .min_by_key(|(_, entry)| (entry.last_observed_at_micros, entry.peer))
+        .min_by_key(|(_, entry)| (entry.last_received_at_micros, entry.peer))
     else {
         return false;
     };

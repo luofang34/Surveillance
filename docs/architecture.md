@@ -92,10 +92,14 @@ surveillance-core ---- no_std + alloc, source-neutral, depends on no decoder
 
 ## Input contract
 
-- An observation's time is runtime-monotonic microseconds in one
-  caller-supplied domain, and is the only clock. It orders observations, ages
-  fields, and drives expiration. It is not UTC. The engine never reads a wall
-  clock and never starts a timer; time advances only through `advance_time`.
+- All observation times use runtime-monotonic microseconds in one
+  caller-supplied domain. They are not UTC. The engine never reads a wall
+  clock and never starts a timer.
+- `received_at_micros` controls track liveness, CPR pair age, and position
+  travel time. It sets creation time and the newest reception time.
+  `advance_time` compares this value with the coasting and removal windows.
+- `observed_at_micros` controls field ordering and field age. A delayed report
+  can keep a track active. It cannot make an old field current.
 - UAT firmware timestamps and Mode S receiver sample indexes are per-radio
   metadata. They are never compared across radios and never used as a
   cross-radio clock.
@@ -333,11 +337,12 @@ and provenance (origin, namespace, source reference). Rules:
                           v
         +------------- Active <---------------+
         |                 |                   |
-        |     per-field freshness lapses      | fresh observation
+        |       no accepted reception         | accepted reception
+        |         for the coast window        |
         |                 v                   |
         |             Coasting ---------------+
         |                 |
-        |                 |  retention window lapses in advance_time
+        |       no accepted reception for the removal window
         v                 v
       Removed  <------ Removed
    (re-key is not removal: the TrackId survives key changes)
@@ -349,8 +354,8 @@ and provenance (origin, namespace, source reference). Rules:
   provenance refreshes stay silent.
 - A provenance or freshness refresh changes exported state. The engine gives
   this state a new revision even when it emits no delta.
-- Coasting is entered deterministically inside `advance_time` when defining
-  fields lapse; the track remains visible and labeled as coasting.
+- Coasting starts inside `advance_time` when no accepted reception arrives
+  during the coast window.
 - Removal is deterministic and driven only by `advance_time`; the engine
   never expires state as a side effect of ingestion order. Removal releases
   every identity the track occupied, so a later observation for any of them

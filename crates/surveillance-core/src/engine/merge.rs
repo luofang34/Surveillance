@@ -79,6 +79,9 @@ pub(crate) fn merge(
         .snapshot
         .last_observed_at_micros
         .max(absorbed_state.snapshot.last_observed_at_micros);
+    survivor_state.last_received_at_micros = survivor_state
+        .last_received_at_micros
+        .max(absorbed_state.last_received_at_micros);
     if absorbed_state.snapshot.phase == TrackPhase::Active {
         survivor_state.snapshot.phase = TrackPhase::Active;
     }
