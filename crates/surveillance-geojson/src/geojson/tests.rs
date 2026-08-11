@@ -7,11 +7,16 @@ use surveillance_core::{
     TrackId, TrackKey, TrackSnapshot, TrackSnapshotHandle, Wgs84Position,
 };
 
-use crate::{FeatureDelta, map_track_delta};
+use crate::{FeatureDelta, FeatureId, map_track_delta};
 
 use super::{GeoJsonError, encode_feature_delta};
 
 const ID: TrackId = TrackId::new(91);
+const PRODUCER: ProducerInstanceId = ProducerInstanceId::new(12);
+
+fn feature_id(id: TrackId) -> FeatureId {
+    FeatureId::new(PRODUCER, id)
+}
 
 fn positioned_feature(latitude_deg: f64, longitude_deg: f64) -> FeatureDelta {
     let key = TrackKey::new(AddressNamespace::Icao, 0x00A1_B2C3);
@@ -33,7 +38,7 @@ fn positioned_feature(latitude_deg: f64, longitude_deg: f64) -> FeatureDelta {
         ),
     ));
     let delta = TrackDelta::Updated(TrackSnapshotHandle::new(
-        ProducerInstanceId::new(12),
+        PRODUCER,
         SnapshotRevision::new(6),
         snapshot,
     ));
@@ -51,7 +56,7 @@ fn upsert_is_an_rfc_7946_point_with_exported_properties() {
     let value = parse(&positioned_feature(37.618_805_6, -122.375_416_7));
 
     assert_eq!(value["type"], "Feature");
-    assert_eq!(value["id"], 91);
+    assert_eq!(value["id"], "12:91");
     assert_eq!(value["geometry"]["type"], "Point");
     assert_eq!(
         value["geometry"]["coordinates"],
@@ -73,21 +78,28 @@ fn upsert_is_an_rfc_7946_point_with_exported_properties() {
 
 #[test]
 fn stale_and_remove_are_features_with_null_geometry() {
-    let stale = parse(&FeatureDelta::Stale { id: ID });
+    let stale = parse(&FeatureDelta::Stale {
+        id: feature_id(ID),
+        revision: SnapshotRevision::new(7),
+    });
     let merged = parse(&FeatureDelta::Remove {
-        id: ID,
-        transfer_to: Some(TrackId::new(92)),
+        id: feature_id(ID),
+        revision: SnapshotRevision::new(8),
+        transfer_to: Some(feature_id(TrackId::new(92))),
     });
     let expired = parse(&FeatureDelta::Remove {
-        id: ID,
+        id: feature_id(ID),
+        revision: SnapshotRevision::new(9),
         transfer_to: None,
     });
 
     assert_eq!(stale["geometry"], Value::Null);
     assert_eq!(stale["properties"]["operation"], "stale");
+    assert_eq!(stale["properties"]["producer_instance_id"], 12);
+    assert_eq!(stale["properties"]["snapshot_revision"], 7);
     assert_eq!(merged["geometry"], Value::Null);
     assert_eq!(merged["properties"]["operation"], "remove");
-    assert_eq!(merged["properties"]["transfer_to"], 92);
+    assert_eq!(merged["properties"]["transfer_to"], "12:92");
     assert_eq!(expired["properties"]["transfer_to"], Value::Null);
 }
 

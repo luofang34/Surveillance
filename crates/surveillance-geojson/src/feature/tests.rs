@@ -6,7 +6,7 @@ use surveillance_core::{
     TrackDelta, TrackId, TrackKey, TrackSnapshot, TrackSnapshotHandle, Wgs84Position,
 };
 
-use super::{FeatureDelta, map_track_delta};
+use super::{FeatureDelta, FeatureId, map_track_delta};
 
 const PRODUCER: ProducerInstanceId = ProducerInstanceId::new(17);
 const TRACK_ID: TrackId = TrackId::new(41);
@@ -14,6 +14,10 @@ const SURVIVOR_ID: TrackId = TrackId::new(42);
 
 fn key(address: u32) -> TrackKey {
     TrackKey::new(AddressNamespace::Icao, address)
+}
+
+fn feature_id(track_id: TrackId) -> FeatureId {
+    FeatureId::new(PRODUCER, track_id)
 }
 
 fn position() -> TimedField<Wgs84Position> {
@@ -35,10 +39,19 @@ fn position() -> TimedField<Wgs84Position> {
 }
 
 fn handle(revision: u64, address: u32, with_position: bool) -> TrackSnapshotHandle {
+    handle_for(PRODUCER, revision, address, with_position)
+}
+
+fn handle_for(
+    producer: ProducerInstanceId,
+    revision: u64,
+    address: u32,
+    with_position: bool,
+) -> TrackSnapshotHandle {
     let mut snapshot = TrackSnapshot::new(TRACK_ID, key(address), 10_000);
     snapshot.position = with_position.then(position);
     snapshot.ownship_shadow = true;
-    TrackSnapshotHandle::new(PRODUCER, SnapshotRevision::new(revision), snapshot)
+    TrackSnapshotHandle::new(producer, SnapshotRevision::new(revision), snapshot)
 }
 
 #[test]
@@ -52,6 +65,7 @@ fn created_and_updated_tracks_with_positions_upsert() {
         };
 
         assert_eq!(feature.id(), TRACK_ID);
+        assert_eq!(feature.feature_id(), feature_id(TRACK_ID));
         assert_eq!(feature.position(), &position());
         assert!(feature.ownship_shadow());
         assert_eq!(feature.producer_instance_id(), PRODUCER);
@@ -66,8 +80,62 @@ fn coasting_positioned_track_becomes_stale() {
 
     assert_eq!(
         map_track_delta(&delta),
-        Some(FeatureDelta::Stale { id: TRACK_ID })
+        Some(FeatureDelta::Stale {
+            id: feature_id(TRACK_ID),
+            revision: SnapshotRevision::new(3),
+        })
     );
+}
+
+#[test]
+fn feature_events_separate_producer_restarts_and_order_one_feature() {
+    let restarted_producer = ProducerInstanceId::new(18);
+    let first = map_track_delta(&TrackDelta::Coasting(handle_for(
+        PRODUCER,
+        7,
+        0x00A1_B2C3,
+        true,
+    )))
+    .expect("a positioned coasting track produces a stale event");
+    let later = map_track_delta(&TrackDelta::Coasting(handle_for(
+        PRODUCER,
+        8,
+        0x00A1_B2C3,
+        true,
+    )))
+    .expect("a later coasting state produces a stale event");
+    let restarted = map_track_delta(&TrackDelta::Coasting(handle_for(
+        restarted_producer,
+        1,
+        0x00A1_B2C3,
+        true,
+    )))
+    .expect("a restarted producer produces a separate stale event");
+
+    let FeatureDelta::Stale {
+        id: first_id,
+        revision: first_revision,
+    } = first
+    else {
+        panic!("expected a stale event");
+    };
+    let FeatureDelta::Stale {
+        id: later_id,
+        revision: later_revision,
+    } = later
+    else {
+        panic!("expected a stale event");
+    };
+    let FeatureDelta::Stale {
+        id: restarted_id, ..
+    } = restarted
+    else {
+        panic!("expected a stale event");
+    };
+
+    assert_eq!(first_id, later_id);
+    assert!(first_revision < later_revision);
+    assert_ne!(first_id, restarted_id);
 }
 
 #[test]
@@ -90,14 +158,16 @@ fn merge_transfers_and_expiry_removes() {
     assert_eq!(
         map_track_delta(&merged),
         Some(FeatureDelta::Remove {
-            id: TRACK_ID,
-            transfer_to: Some(SURVIVOR_ID),
+            id: feature_id(TRACK_ID),
+            revision: SnapshotRevision::new(4),
+            transfer_to: Some(feature_id(SURVIVOR_ID)),
         })
     );
     assert_eq!(
         map_track_delta(&expired),
         Some(FeatureDelta::Remove {
-            id: TRACK_ID,
+            id: feature_id(TRACK_ID),
+            revision: SnapshotRevision::new(5),
             transfer_to: None,
         })
     );
@@ -123,7 +193,8 @@ fn position_absent_track_waits_for_its_first_position() {
     assert_eq!(
         map_track_delta(&expired),
         Some(FeatureDelta::Remove {
-            id: TRACK_ID,
+            id: feature_id(TRACK_ID),
+            revision: SnapshotRevision::new(3),
             transfer_to: None,
         })
     );

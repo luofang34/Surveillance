@@ -16,8 +16,12 @@ The adapter supplies this renderer-neutral vocabulary:
 ```rust,ignore
 pub enum FeatureDelta {
     Upsert(AircraftFeature),
-    Stale { id: TrackId },
-    Remove { id: TrackId, transfer_to: Option<TrackId> },
+    Stale { id: FeatureId, revision: SnapshotRevision },
+    Remove {
+        id: FeatureId,
+        revision: SnapshotRevision,
+        transfer_to: Option<FeatureId>,
+    },
 }
 ```
 
@@ -25,11 +29,13 @@ An `Upsert` places or moves one aircraft feature. A `Stale` change marks a
 coasting feature as old. A `Remove` change removes one feature.
 
 `transfer_to` separates a merge from an expired track. A merge supplies the
-`TrackId` of the surviving track. An expiry supplies `None`.
+`FeatureId` of the surviving track. An expiry supplies `None`.
 
-The feature identity is the stable `TrackId`. A change to `TrackKey` does not
-change the feature identity. Thus, promotion and demotion do not make a new
-map feature.
+`FeatureId` combines `ProducerInstanceId` and `TrackId`. A producer restart
+cannot collide with a feature from an earlier producer. `SnapshotRevision`
+orders all changes for one feature. A change to `TrackKey` does not change
+the feature identity. Thus, promotion and demotion do not make a new map
+feature.
 
 ## Position and properties
 
@@ -56,8 +62,8 @@ GeoJSON (RFC 7946) is an optional serialization. It is not the Rust API. The
 
 An upsert becomes a GeoJSON `Feature` with a Point geometry. The coordinate
 order is longitude and then latitude. Stale and remove changes use a null
-geometry. The feature properties include the operation and applicable track
-properties.
+geometry. The feature identity contains the producer and track values. The
+properties include the revision, operation, and applicable track properties.
 
 The default crate build does not link `serde_json`. The default build and the
 `geojson` build are both `no_std + alloc`.

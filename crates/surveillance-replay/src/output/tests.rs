@@ -57,7 +57,7 @@ fn geojson_distinguishes_a_merge_from_an_expiry() {
         .filter(|line| !line.is_empty())
         .map(|line| serde_json::from_slice(line).expect("each line is JSON"))
         .collect();
-    assert_eq!(values[0]["properties"]["transfer_to"], 10);
+    assert_eq!(values[0]["properties"]["transfer_to"], "71:10");
     assert_eq!(
         values[1]["properties"]["transfer_to"],
         serde_json::Value::Null

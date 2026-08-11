@@ -13,6 +13,6 @@ mod feature;
 #[cfg(feature = "geojson")]
 mod geojson;
 
-pub use feature::{AircraftFeature, FeatureDelta, map_track_delta};
+pub use feature::{AircraftFeature, FeatureDelta, FeatureId, map_track_delta};
 #[cfg(feature = "geojson")]
 pub use geojson::{GeoJsonError, encode_feature_delta};
