@@ -83,9 +83,8 @@ impl Default for EngineConfig {
 /// time only advances when the caller says so, which makes expiration
 /// deterministic and replay bit-reproducible.
 ///
-/// A delta materializes one snapshot clone. Deltas report value, quality, and
-/// provenance changes. Repeated receptions from one source that only refresh
-/// time stay silent.
+/// Deltas materialize one snapshot clone. They report value, quality, and provenance.
+/// Repeated receptions from one source that only refresh time stay silent.
 #[derive(Debug)]
 pub struct SurveillanceEngine {
     config: EngineConfig,

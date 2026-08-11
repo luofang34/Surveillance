@@ -51,12 +51,13 @@ binding rules for anyone implementing against that design.
   It is separate from default library builds. See the
   [replay guide](docs/replay.md).
 
-Planned output adapters are tracked in the repository issues.
+The [capacity guide](docs/capacity.md) defines the bounded association work.
 
 ## Checks
 
 ```sh
-scripts/ci.sh              # boundaries, fmt, clippy, tests, rustdoc, release build
-scripts/check-no-std.sh    # embedded and wasm target matrix
+scripts/ci.sh                # boundaries, size, fmt, clippy, tests, docs, release
+scripts/check-no-std.sh      # embedded and Wasm target matrix
 scripts/check-boundaries.sh  # the engine links no radio decoder
+scripts/check-source-size.sh # Rust source file limits
 ```

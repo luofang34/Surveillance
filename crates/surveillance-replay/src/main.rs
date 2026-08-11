@@ -49,6 +49,10 @@ impl From<ReplayArguments> for ReplayCommand {
     }
 }
 
+#[allow(
+    clippy::disallowed_types,
+    reason = "the host CLI can use anyhow at its main boundary"
+)]
 fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_ansi(false)
