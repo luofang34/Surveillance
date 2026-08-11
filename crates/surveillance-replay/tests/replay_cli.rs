@@ -73,6 +73,34 @@ fn a_fixed_identity_reproduces_the_golden_track_stream() {
 }
 
 #[test]
+fn a_live_radio_capture_reproduces_the_golden_track_stream() {
+    let arguments = ["--producer-instance-id", "72"];
+    let first = replay("live_receptions.ndjson", &arguments);
+    let second = replay("live_receptions.ndjson", &arguments);
+    assert_success(&first);
+    assert_success(&second);
+
+    assert_eq!(
+        first.stdout,
+        include_bytes!("fixtures/live_track_records.ndjson")
+    );
+    assert_eq!(first.stdout, second.stdout);
+    let diagnostics = String::from_utf8_lossy(&first.stderr);
+    for field in [
+        "receptions_consumed=5",
+        "observations_produced=4",
+        "receptions_skipped_not_traffic=1",
+        "receptions_refused=0",
+        "fields_rejected=0",
+    ] {
+        assert!(
+            diagnostics.contains(field),
+            "missing {field}: {diagnostics}"
+        );
+    }
+}
+
+#[test]
 fn each_command_construction_gets_a_new_producer_identity() {
     let first = replay("receptions.ndjson", &[]);
     let second = replay("receptions.ndjson", &[]);
