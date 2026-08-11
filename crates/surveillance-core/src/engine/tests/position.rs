@@ -1,8 +1,10 @@
 #![allow(clippy::expect_used, clippy::panic)]
 
-use crate::cpr::{CprFormat, CprFrame};
+use crate::cpr::{CprDecodeError, CprFormat, CprFrame};
 use crate::engine::tests::{ICAO, PRODUCER, advance, engine, ingest, observation};
-use crate::engine::{EngineConfig, SurveillanceEngine};
+use crate::engine::{
+    EngineConfig, FieldDisposition, PositionDisposition, PositionRejection, SurveillanceEngine,
+};
 use crate::observation::{ObservationOrigin, PositionObservation, Wgs84Position};
 use crate::source::Band;
 use crate::track::TrackDelta;
@@ -93,6 +95,31 @@ fn a_stale_pair_does_not_produce_a_position() {
             .is_none(),
         "a pair spanning more than the pairing window must not decode"
     );
+}
+
+#[test]
+fn ingest_reports_pending_and_stale_cpr_separately() {
+    let mut engine = engine();
+    let pending = engine
+        .ingest(cpr_observation(1_000, ODD), |_| {})
+        .expect("the valid frame reaches CPR history");
+    assert_eq!(
+        pending.position,
+        PositionDisposition::Pending(CprDecodeError::PairIncomplete)
+    );
+
+    let too_late = 1_000 + engine.config().cpr.max_pair_age_micros + 1;
+    let mut observation = cpr_observation(too_late, EVEN);
+    observation.pressure_altitude_ft = Some(12_000);
+    let stale = engine
+        .ingest(observation, |_| {})
+        .expect("altitude still applies when CPR is stale");
+    assert!(matches!(
+        stale.position,
+        PositionDisposition::Rejected(PositionRejection::Decode(CprDecodeError::PairTooOld { .. }))
+    ));
+    assert_eq!(stale.fields.pressure_altitude_ft, FieldDisposition::Changed);
+    assert_eq!(stale.rejected_field_count(), 1);
 }
 
 #[test]

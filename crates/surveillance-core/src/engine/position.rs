@@ -15,6 +15,7 @@ use crate::cpr::{
     local, validate_range,
 };
 use crate::engine::ingest::timed;
+use crate::engine::{FieldDisposition, PositionDisposition, PositionRejection};
 use crate::freshness::FreshnessPolicy;
 use crate::fusion::{FieldUpdate, fuse};
 use crate::observation::{PositionObservation, TrafficObservation, Wgs84Position};
@@ -40,9 +41,9 @@ pub(crate) fn apply(
     state: &mut TrackState,
     observation: &TrafficObservation,
     context: PositionContext<'_>,
-) -> FieldUpdate {
+) -> PositionApply {
     let Some(position) = observation.position else {
-        return FieldUpdate::Rejected;
+        return PositionApply::not_supplied();
     };
 
     let decoded = match position {
@@ -55,18 +56,66 @@ pub(crate) fn apply(
         }
     };
 
-    let Ok(candidate) = decoded else {
-        return FieldUpdate::Rejected;
+    let candidate = match decoded {
+        Ok(candidate) => candidate,
+        Err(error) => return PositionApply::rejected(error),
     };
-    if validate_against_previous(state, observation, candidate, context).is_err() {
-        return FieldUpdate::Rejected;
+    if let Err(error) = validate_against_previous(state, observation, candidate, context) {
+        return PositionApply::rejected(error);
     }
 
-    fuse(
+    let update = fuse(
         &mut state.snapshot.position,
         timed(observation, candidate),
         context.freshness.position_fresh_micros,
-    )
+    );
+    PositionApply::from_update(update)
+}
+
+pub(crate) struct PositionApply {
+    pub(crate) update: FieldUpdate,
+    pub(crate) disposition: PositionDisposition,
+}
+
+impl PositionApply {
+    fn not_supplied() -> Self {
+        Self {
+            update: FieldUpdate::Rejected,
+            disposition: PositionDisposition::NotSupplied,
+        }
+    }
+
+    fn rejected(error: CprDecodeError) -> Self {
+        let disposition = if error == CprDecodeError::PairIncomplete {
+            PositionDisposition::Pending(error)
+        } else {
+            PositionDisposition::Rejected(PositionRejection::Decode(error))
+        };
+        Self {
+            update: FieldUpdate::Rejected,
+            disposition,
+        }
+    }
+
+    fn from_update(update: FieldUpdate) -> Self {
+        let disposition = if update == FieldUpdate::Rejected {
+            PositionDisposition::Rejected(PositionRejection::FusionPrecedence)
+        } else {
+            PositionDisposition::Applied(FieldDisposition::from_update(update))
+        };
+        Self {
+            update,
+            disposition,
+        }
+    }
+
+    pub(crate) fn was_applied(&self) -> bool {
+        self.update.was_applied()
+    }
+
+    pub(crate) fn is_meaningful(&self) -> bool {
+        self.update.is_meaningful()
+    }
 }
 
 fn decode_airborne(

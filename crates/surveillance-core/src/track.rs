@@ -211,6 +211,9 @@ pub struct TrackSnapshot {
     /// Fused emergency or priority status.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub emergency: Option<TimedField<EmergencyState>>,
+    /// Fused source-neutral emitter category.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub emitter_category: Option<TimedField<u8>>,
     /// Monotonic time the track was created.
     pub created_at_micros: u64,
     /// Monotonic time of the newest applied observation.
@@ -236,6 +239,7 @@ impl TrackSnapshot {
             squawk: None,
             air_ground: None,
             emergency: None,
+            emitter_category: None,
             created_at_micros,
             last_observed_at_micros: created_at_micros,
         }
