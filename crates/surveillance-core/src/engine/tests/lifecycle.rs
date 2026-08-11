@@ -5,9 +5,11 @@ use alloc::vec::Vec;
 use crate::engine::tests::{ICAO, OTHER_ICAO, PRODUCER, advance, engine, ingest, observation};
 use crate::engine::{EngineConfig, SurveillanceEngine};
 use crate::freshness::FreshnessPolicy;
-use crate::observation::ObservationOrigin;
+use crate::observation::{Callsign, ObservationOrigin, PositionObservation, Wgs84Position};
 use crate::source::Band;
-use crate::track::{AddressNamespace, RemovalReason, TrackDelta, TrackKey, TrackPhase};
+use crate::track::{
+    AddressNamespace, PositionStatus, RemovalReason, TrackDelta, TrackKey, TrackPhase,
+};
 
 /// Windows of the default policy these tests drive time against.
 fn coast_at() -> u64 {
@@ -243,6 +245,55 @@ fn each_field_ages_on_its_own_window() {
             .as_ref()
             .expect("callsign applied")
             .is_fresh(50_000, 100_000)
+    );
+}
+
+#[test]
+fn identity_updates_keep_the_track_active_without_refreshing_position() {
+    let mut engine = engine();
+    let mut positioned = observation(
+        0,
+        ICAO,
+        ObservationOrigin::AdsbDirect { band: Band::Uat978 },
+    );
+    positioned.position = Some(PositionObservation::Decoded(Wgs84Position {
+        latitude_deg: 40.0,
+        longitude_deg: -74.0,
+    }));
+    ingest(&mut engine, positioned);
+
+    let now = engine.config().freshness.position_fresh_micros + 1;
+    let mut identified = observation(now, ICAO, ObservationOrigin::ModeSReply);
+    identified.callsign = Some(Callsign::new("ACTIVE1"));
+    ingest(&mut engine, identified);
+    let deltas = advance(&mut engine, now);
+
+    let snapshot = engine.snapshot(ICAO).expect("track remains available");
+    assert_eq!(snapshot.phase, TrackPhase::Active);
+    assert_eq!(snapshot.position_status, PositionStatus::Stale);
+    assert!(snapshot.position.is_some());
+    assert!(matches!(deltas.as_slice(), [TrackDelta::Updated(_)]));
+
+    let mut reacquired = observation(
+        now + 1,
+        ICAO,
+        ObservationOrigin::AdsbDirect { band: Band::Uat978 },
+    );
+    reacquired.position = Some(PositionObservation::Decoded(Wgs84Position {
+        latitude_deg: 40.0,
+        longitude_deg: -74.0,
+    }));
+    let reacquired_deltas = ingest(&mut engine, reacquired);
+    assert!(matches!(
+        reacquired_deltas.as_slice(),
+        [TrackDelta::Updated(_)]
+    ));
+    assert_eq!(
+        engine
+            .snapshot(ICAO)
+            .expect("track remains available")
+            .position_status,
+        PositionStatus::Current
     );
 }
 

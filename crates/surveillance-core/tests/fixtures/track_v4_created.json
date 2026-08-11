@@ -1,5 +1,5 @@
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "delta": {
     "kind": "created",
     "data": {
@@ -55,6 +55,7 @@
             }
           }
         },
+        "position_status": "current",
         "pressure_altitude_ft": {
           "value": 12500,
           "time": {

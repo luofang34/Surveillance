@@ -265,6 +265,10 @@ Both directions are evidence-driven and reversible without identity churn.
   altitude, squawk, or identity. State, snapshots, and deltas represent
   position-absent tracks explicitly; position history begins when the first
   valid position arrives.
+- `PositionStatus` reports `Unavailable`, `Current`, or `Stale` independently
+  from `TrackPhase`. `advance_time` marks an old position as stale without
+  coasting or removing a track that still supplies other observations. A new
+  accepted position restores `Current`.
 
 ## Origin, delivery, and time
 
@@ -356,6 +360,9 @@ and provenance (origin, namespace, source reference). Rules:
   this state a new revision even when it emits no delta.
 - Coasting starts inside `advance_time` when no accepted reception arrives
   during the coast window.
+- Position freshness changes inside `advance_time`. It uses only the position
+  field time and the position freshness window. Another field cannot refresh
+  the position.
 - Removal is deterministic and driven only by `advance_time`; the engine
   never expires state as a side effect of ingestion order. Removal releases
   every identity the track occupied, so a later observation for any of them

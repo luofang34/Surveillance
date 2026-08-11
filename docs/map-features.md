@@ -25,8 +25,8 @@ pub enum FeatureDelta {
 }
 ```
 
-An `Upsert` places or moves one aircraft feature. A `Stale` change marks a
-coasting feature as old. A `Remove` change removes one feature.
+An `Upsert` places or moves one aircraft feature. A `Stale` change marks its
+position as old. A `Remove` change removes one feature.
 
 `transfer_to` separates a merge from an expired track. A merge supplies the
 `FeatureId` of the surviving track. An expiry supplies `None`.
@@ -43,9 +43,10 @@ A create or update with a position produces an `Upsert`. A position-absent
 create or update produces no feature change. The first valid position
 produces the first `Upsert`.
 
-A positioned track that starts to coast produces `Stale`. A position-absent
-track that starts to coast produces no feature change. A removal always
-produces `Remove`.
+A positioned track produces `Stale` when its position becomes stale. The
+complete track can remain active because another field is current. A new
+position produces an `Upsert`. A position-absent track produces no stale
+change. A removal always produces `Remove`.
 
 `AircraftFeature` retains the complete `TrackSnapshotHandle`. It also gives
 direct access to the position. The position includes observation time,

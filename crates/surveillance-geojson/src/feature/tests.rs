@@ -2,8 +2,9 @@
 
 use surveillance_core::{
     AddressNamespace, Band, DeliveryPath, FieldProvenance, FieldQuality, ObservationOrigin,
-    ObservationTime, ProducerInstanceId, RemovalReason, SnapshotRevision, SourceRef, TimedField,
-    TrackDelta, TrackId, TrackKey, TrackSnapshot, TrackSnapshotHandle, Wgs84Position,
+    ObservationTime, PositionStatus, ProducerInstanceId, RemovalReason, SnapshotRevision,
+    SourceRef, TimedField, TrackDelta, TrackId, TrackKey, TrackSnapshot, TrackSnapshotHandle,
+    Wgs84Position,
 };
 
 use super::{FeatureDelta, FeatureId, map_track_delta};
@@ -50,7 +51,25 @@ fn handle_for(
 ) -> TrackSnapshotHandle {
     let mut snapshot = TrackSnapshot::new(TRACK_ID, key(address), 10_000);
     snapshot.position = with_position.then(position);
+    if with_position {
+        snapshot.position_status = PositionStatus::Current;
+    }
     snapshot.ownship_shadow = true;
+    TrackSnapshotHandle::new(producer, SnapshotRevision::new(revision), snapshot)
+}
+
+fn stale_handle(revision: u64, address: u32) -> TrackSnapshotHandle {
+    stale_handle_for(PRODUCER, revision, address)
+}
+
+fn stale_handle_for(
+    producer: ProducerInstanceId,
+    revision: u64,
+    address: u32,
+) -> TrackSnapshotHandle {
+    let mut snapshot = TrackSnapshot::new(TRACK_ID, key(address), 10_000);
+    snapshot.position = Some(position());
+    snapshot.position_status = PositionStatus::Stale;
     TrackSnapshotHandle::new(producer, SnapshotRevision::new(revision), snapshot)
 }
 
@@ -75,8 +94,8 @@ fn created_and_updated_tracks_with_positions_upsert() {
 }
 
 #[test]
-fn coasting_positioned_track_becomes_stale() {
-    let delta = TrackDelta::Coasting(handle(3, 0x00A1_B2C3, true));
+fn stale_position_produces_a_stale_feature_while_the_track_is_active() {
+    let delta = TrackDelta::Updated(stale_handle(3, 0x00A1_B2C3));
 
     assert_eq!(
         map_track_delta(&delta),
@@ -88,27 +107,34 @@ fn coasting_positioned_track_becomes_stale() {
 }
 
 #[test]
+fn a_current_position_stays_current_when_the_track_coasts() {
+    let delta = TrackDelta::Coasting(handle(4, 0x00A1_B2C3, true));
+
+    assert!(matches!(
+        map_track_delta(&delta),
+        Some(FeatureDelta::Upsert(_))
+    ));
+}
+
+#[test]
 fn feature_events_separate_producer_restarts_and_order_one_feature() {
     let restarted_producer = ProducerInstanceId::new(18);
-    let first = map_track_delta(&TrackDelta::Coasting(handle_for(
+    let first = map_track_delta(&TrackDelta::Coasting(stale_handle_for(
         PRODUCER,
         7,
         0x00A1_B2C3,
-        true,
     )))
     .expect("a positioned coasting track produces a stale event");
-    let later = map_track_delta(&TrackDelta::Coasting(handle_for(
+    let later = map_track_delta(&TrackDelta::Coasting(stale_handle_for(
         PRODUCER,
         8,
         0x00A1_B2C3,
-        true,
     )))
     .expect("a later coasting state produces a stale event");
-    let restarted = map_track_delta(&TrackDelta::Coasting(handle_for(
+    let restarted = map_track_delta(&TrackDelta::Coasting(stale_handle_for(
         restarted_producer,
         1,
         0x00A1_B2C3,
-        true,
     )))
     .expect("a restarted producer produces a separate stale event");
 

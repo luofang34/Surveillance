@@ -40,16 +40,16 @@ fn accessors_reject_a_version_this_library_does_not_read() {
 }
 
 #[test]
-fn a_version_2_reader_rejects_the_version_3_header() {
-    let fixture = include_str!("../../tests/fixtures/track_v3_created.json");
+fn a_version_3_reader_rejects_the_version_4_header() {
+    let fixture = include_str!("../../tests/fixtures/track_v4_created.json");
     let header: TrackRecordHeader =
         serde_json::from_str(fixture).expect("the version header decodes without the payload");
 
     assert_eq!(
-        validate_supported_version(header.schema_version(), 2).expect_err("version 3 must reject"),
+        validate_supported_version(header.schema_version(), 3).expect_err("version 4 must reject"),
         TrackSchemaError::UnsupportedVersion {
-            found: 3,
-            supported: 2,
+            found: 4,
+            supported: 3,
         }
     );
 }

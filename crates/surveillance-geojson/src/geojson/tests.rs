@@ -3,8 +3,8 @@
 use serde_json::{Value, json};
 use surveillance_core::{
     AddressNamespace, Band, DeliveryPath, FieldProvenance, FieldQuality, ObservationOrigin,
-    ObservationTime, ProducerInstanceId, SnapshotRevision, SourceRef, TimedField, TrackDelta,
-    TrackId, TrackKey, TrackSnapshot, TrackSnapshotHandle, Wgs84Position,
+    ObservationTime, PositionStatus, ProducerInstanceId, SnapshotRevision, SourceRef, TimedField,
+    TrackDelta, TrackId, TrackKey, TrackSnapshot, TrackSnapshotHandle, Wgs84Position,
 };
 
 use crate::{FeatureDelta, FeatureId, map_track_delta};
@@ -37,6 +37,7 @@ fn positioned_feature(latitude_deg: f64, longitude_deg: f64) -> FeatureDelta {
             SourceRef::new(3, 4, DeliveryPath::LocalReceiver),
         ),
     ));
+    snapshot.position_status = PositionStatus::Current;
     let delta = TrackDelta::Updated(TrackSnapshotHandle::new(
         PRODUCER,
         SnapshotRevision::new(6),
