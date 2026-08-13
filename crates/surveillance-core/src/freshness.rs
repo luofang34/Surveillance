@@ -144,6 +144,12 @@ pub struct FreshnessPolicy {
     pub coast_after_micros: u64,
     /// Time since the newest accepted reception after which a track is removed.
     pub remove_after_micros: u64,
+    /// Window during which a reported position can be advanced along the
+    /// reported velocity for display between reports.
+    ///
+    /// Position projection also stops at the coasting point, whichever comes
+    /// first; see [`crate::projection`].
+    pub extrapolate_max_micros: u64,
 }
 
 impl Default for FreshnessPolicy {
@@ -155,6 +161,7 @@ impl Default for FreshnessPolicy {
             integrity_fresh_micros: 5_000_000,
             coast_after_micros: 15_000_000,
             remove_after_micros: 60_000_000,
+            extrapolate_max_micros: 15_000_000,
         }
     }
 }

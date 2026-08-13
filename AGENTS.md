@@ -313,6 +313,7 @@ crates/
       cpr.rs
       fusion.rs
       freshness.rs
+      projection.rs
   surveillance-gdl90/
   surveillance-geolibre/
 ```

@@ -29,6 +29,7 @@ pub mod fusion;
 pub mod geodesy;
 pub mod identity;
 pub mod observation;
+pub mod projection;
 pub mod schema;
 pub mod source;
 pub mod track;
@@ -51,6 +52,7 @@ pub use observation::{
     PositionObservation, QualityIndicator, Squawk, TimeBasis, TrafficObservation,
     VelocityObservation, VerticalRateSource, Wgs84Position,
 };
+pub use projection::{PositionProjection, ProjectionBasis, project_position};
 pub use schema::{
     CURRENT_TRACK_SCHEMA_VERSION, TimeCorrespondence, TimeCorrespondenceError, TrackRecord,
     TrackRecordDecodeError, TrackRecordHeader, TrackSchemaError, TrackStreamHeader,
