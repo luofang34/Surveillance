@@ -57,6 +57,9 @@ pub enum ProjectionBasis {
 /// the producer's bounds instead of its own guess. Absence on a decoded
 /// snapshot means the producer declared no bounds; [`project_position`] then
 /// returns the reported position unchanged.
+///
+/// Additive growth rule: a new field must carry `#[serde(default)]`, so a
+/// record from an older producer still decodes; see [`crate::schema`].
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[non_exhaustive]
 pub struct ProjectionBounds {
@@ -162,11 +165,18 @@ pub fn project_position(snapshot: &TrackSnapshot, now_micros: u64) -> Option<Pos
 
     #[allow(clippy::cast_precision_loss)]
     let age = age_micros as f64;
-    let distance_m = (ground_speed_kt * age * METRES_PER_NAUTICAL_MILE / MICROS_PER_HOUR)
-        .min(bounds.extrapolate_max_distance_m as f64);
+    let leg_m = ground_speed_kt * age * METRES_PER_NAUTICAL_MILE / MICROS_PER_HOUR;
+    let distance_m = leg_m.min(bounds.extrapolate_max_distance_m as f64);
+    // The altitude advances to the same instant as the clamped leg, so one
+    // projection never mixes two instants.
+    let effective_age = if leg_m > 0.0 {
+        age * (distance_m / leg_m)
+    } else {
+        age
+    };
     Some(PositionProjection {
         position: move_along_great_circle(position.value, track_angle_deg_true, distance_m),
-        pressure_altitude_ft: projected_altitude(snapshot, velocity.value, age),
+        pressure_altitude_ft: projected_altitude(snapshot, velocity.value, effective_age),
         basis: ProjectionBasis::Extrapolated,
     })
 }
@@ -187,5 +197,5 @@ fn projected_altitude(
         return Some(altitude.value);
     }
     let feet = rate_fpm as f64 * age_micros / MICROS_PER_MINUTE;
-    Some(altitude.value + libm::round(feet) as i32)
+    Some(altitude.value.saturating_add(libm::round(feet) as i32))
 }

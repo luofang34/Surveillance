@@ -311,6 +311,26 @@ fn a_geometric_rate_does_not_move_a_pressure_altitude() {
 }
 
 #[test]
+fn a_clamped_leg_clamps_the_altitude_to_the_same_instant() {
+    // Fifteen seconds at 240 knots clamps to the one-kilometre limit at
+    // about 8.1 seconds, so the altitude must advance by the rate over
+    // 8.1 seconds, not over the full fifteen.
+    let snapshot = with_vertical_rate(
+        with_altitude(
+            with_velocity(snapshot(1_000_000), 1_000_000, Some(240.0), Some(0.0)),
+            1_000_000,
+            4_500,
+        ),
+        1_200,
+        None,
+    );
+    let projection = project_position(&snapshot, 16_000_000).expect("a positioned track projects");
+    assert_eq!(projection.basis, ProjectionBasis::Extrapolated);
+    // 1 000 m at 240 kt is 8.098 s; 1 200 fpm over 8.098 s is 162 ft.
+    assert_eq!(projection.pressure_altitude_ft, Some(4_662));
+}
+
+#[test]
 fn an_extrapolated_projection_without_a_rate_keeps_the_reported_altitude() {
     let snapshot = with_altitude(moving_snapshot(1_000_000), 1_000_000, 4_500);
     let projection = project_position(&snapshot, 11_000_000).expect("a positioned track projects");

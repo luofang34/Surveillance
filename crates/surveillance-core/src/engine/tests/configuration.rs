@@ -148,6 +148,20 @@ fn zero_freshness_and_cpr_time_are_rejected() {
             name: "extrapolate_max_micros"
         })
     ));
+
+    let distance = EngineConfig {
+        freshness: FreshnessPolicy {
+            extrapolate_max_distance_m: 0,
+            ..FreshnessPolicy::default()
+        },
+        ..EngineConfig::default()
+    };
+    assert!(matches!(
+        distance.validate(),
+        Err(EngineConfigError::ZeroFreshnessWindow {
+            name: "extrapolate_max_distance_m"
+        })
+    ));
 }
 
 #[test]
