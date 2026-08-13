@@ -45,6 +45,7 @@ pub enum ProjectionBasis {
 
 /// Position of one track at one instant.
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+#[non_exhaustive]
 pub struct PositionProjection {
     /// Position valid at the queried instant.
     pub position: Wgs84Position,
@@ -60,6 +61,16 @@ pub struct PositionProjection {
 /// `extrapolate_max_micros`, or the velocity is absent, stale, or has no
 /// ground speed and track angle. Otherwise returns the reported position
 /// advanced along the reported velocity by the position age.
+///
+/// The silence check reads `last_observed_at_micros`, the newest measurement
+/// time a snapshot exports. Coasting itself reads the newest reception time,
+/// so for an observation mapped from a remote clock projection can stop
+/// slightly before the track is called coasting. It never stops later.
+///
+/// Pass the freshness policy of the engine that produced the snapshot. A
+/// consumer that receives snapshots over a stream must learn the producer's
+/// policy from the stream context; a different policy gives different
+/// projection bounds.
 ///
 /// This is a pure function of the snapshot and the caller-supplied
 /// monotonic time; it changes no state and reads no clock.

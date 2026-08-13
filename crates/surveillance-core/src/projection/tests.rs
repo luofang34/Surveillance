@@ -177,3 +177,41 @@ fn a_query_before_the_report_is_reported() {
     assert_eq!(projection.basis, ProjectionBasis::Reported);
     assert_eq!(projection.position, START);
 }
+
+#[test]
+fn projection_window_edges_match_the_freshness_inequalities() {
+    let freshness = FreshnessPolicy {
+        extrapolate_max_micros: 5_000_000,
+        coast_after_micros: 4_000_000,
+        ..FreshnessPolicy::default()
+    };
+    let mut snapshot = moving_snapshot(1_000_000);
+
+    // Age exactly at the window still projects: the window check is strict.
+    // A newer callsign report keeps the silence inside the coast window.
+    snapshot.last_observed_at_micros = 6_000_000;
+    let projection =
+        project_position(&snapshot, 6_000_000, &freshness).expect("a positioned track projects");
+    assert_eq!(projection.basis, ProjectionBasis::Extrapolated);
+
+    // Silence exactly at the coast window still projects, matching the
+    // strict inequality of the coasting transition itself.
+    snapshot.last_observed_at_micros = 1_000_000;
+    let projection =
+        project_position(&snapshot, 5_000_000, &freshness).expect("a positioned track projects");
+    assert_eq!(projection.basis, ProjectionBasis::Extrapolated);
+}
+
+#[test]
+fn a_stationary_track_projects_to_its_reported_position() {
+    let snapshot = with_velocity(snapshot(1_000_000), 1_000_000, Some(0.0), Some(270.0));
+    let projection = project_position(&snapshot, 4_000_000, &FreshnessPolicy::default())
+        .expect("a positioned track projects");
+    assert_eq!(projection.basis, ProjectionBasis::Extrapolated);
+    assert!(
+        (projection.position.latitude_deg - START.latitude_deg).abs() < 1e-9
+            && (projection.position.longitude_deg - START.longitude_deg).abs() < 1e-9,
+        "a stationary track moved to {:?}",
+        projection.position
+    );
+}
