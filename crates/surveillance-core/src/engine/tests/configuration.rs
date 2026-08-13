@@ -134,6 +134,20 @@ fn zero_freshness_and_cpr_time_are_rejected() {
         ..EngineConfig::default()
     };
     assert_eq!(cpr.validate(), Err(EngineConfigError::ZeroCprPairAge));
+
+    let extrapolation = EngineConfig {
+        freshness: FreshnessPolicy {
+            extrapolate_max_micros: 0,
+            ..FreshnessPolicy::default()
+        },
+        ..EngineConfig::default()
+    };
+    assert!(matches!(
+        extrapolation.validate(),
+        Err(EngineConfigError::ZeroFreshnessWindow {
+            name: "extrapolate_max_micros"
+        })
+    ));
 }
 
 #[test]

@@ -398,6 +398,27 @@ display. An approved application must set policy for its intended function.
 See the FAA [TIS-B description](https://www.faa.gov/air_traffic/publications/atpubs/aip_html/part2_enr_section_1.1.html)
 and [AC 20-172B](https://www.faa.gov/documentLibrary/media/Advisory_Circular/AC20-172B.pdf).
 
+### Position projection between reports
+
+A consumer draws a track more often than reports arrive. Drawing only the
+reported position makes a target step from one report to the next.
+`project_position` gives the position of a track at one instant. It advances
+the newest reported position along the reported ground speed and track angle.
+Projection belongs to the core: the report times, the reported velocity, and
+the track angle already live here, and each client-side copy would be a
+different opinion about where an aircraft is.
+
+- The reported position stays available and stays authoritative. A projected
+  position is a guess between two facts. `ProjectionBasis` marks it
+  `Extrapolated`, so a consumer can show a projected target differently.
+- Projection needs a fresh velocity with a ground speed and a track angle.
+  Without them the reported position is the answer.
+- Projection stops at the projection window `extrapolate_max_micros`. It
+  never applies to a coasting track, and it stops when the silence passes
+  the coast window even before `advance_time` runs.
+- Projection is a pure function of the snapshot and the caller-supplied
+  monotonic time. It changes no state and reads no clock.
+
 ## Ownship shadows
 
 Ground infrastructure rebroadcasts ownship: an aircraft's own transmission

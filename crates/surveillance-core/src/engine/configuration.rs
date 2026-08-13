@@ -96,6 +96,7 @@ fn validate_freshness(config: &EngineConfig) -> Result<(), EngineConfigError> {
         ("integrity_fresh_micros", policy.integrity_fresh_micros),
         ("coast_after_micros", policy.coast_after_micros),
         ("remove_after_micros", policy.remove_after_micros),
+        ("extrapolate_max_micros", policy.extrapolate_max_micros),
     ] {
         if value == 0 {
             return Err(EngineConfigError::ZeroFreshnessWindow { name });

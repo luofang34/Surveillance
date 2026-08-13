@@ -1,6 +1,6 @@
 #![allow(clippy::expect_used, clippy::panic)]
 
-use crate::geodesy::great_circle_distance_m;
+use crate::geodesy::{great_circle_distance_m, move_along_great_circle};
 use crate::observation::Wgs84Position;
 
 fn at(latitude_deg: f64, longitude_deg: f64) -> Wgs84Position {
@@ -53,5 +53,48 @@ fn a_short_separation_resolves_precisely() {
     assert!(
         (metres - 85.2).abs() < 1.0,
         "a thousandth of a degree measured {metres} m"
+    );
+}
+
+#[test]
+fn a_zero_leg_stays_at_the_start() {
+    let start = at(40.639751, -73.778925);
+    let moved = move_along_great_circle(start, 123.0, 0.0);
+    assert!(great_circle_distance_m(start, moved) < 1e-6);
+}
+
+#[test]
+fn a_northward_leg_increases_latitude_only() {
+    let moved = move_along_great_circle(at(40.0, -74.0), 0.0, 1_852.0);
+    assert!(
+        (moved.latitude_deg - 40.016_656).abs() < 0.000_1,
+        "one nautical mile north measured {} deg",
+        moved.latitude_deg
+    );
+    assert!(
+        (moved.longitude_deg - -74.0).abs() < 1e-9,
+        "longitude moved to {}",
+        moved.longitude_deg
+    );
+}
+
+#[test]
+fn movement_is_the_inverse_of_distance() {
+    let start = at(47.6, -122.3);
+    let moved = move_along_great_circle(start, 213.5, 4_500.0);
+    let metres = great_circle_distance_m(start, moved);
+    assert!(
+        (metres - 4_500.0).abs() < 0.01,
+        "round trip measured {metres} m"
+    );
+}
+
+#[test]
+fn longitude_wraps_across_the_antimeridian() {
+    let moved = move_along_great_circle(at(0.0, 179.999), 90.0, 1_000.0);
+    assert!(
+        moved.longitude_deg < -179.99,
+        "longitude did not wrap: {}",
+        moved.longitude_deg
     );
 }
