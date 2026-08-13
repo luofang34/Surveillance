@@ -403,19 +403,30 @@ and [AC 20-172B](https://www.faa.gov/documentLibrary/media/Advisory_Circular/AC2
 A consumer draws a track more often than reports arrive. Drawing only the
 reported position makes a target step from one report to the next.
 `project_position` gives the position of a track at one instant. It advances
-the newest reported position along the reported ground speed and track angle.
-Projection belongs to the core: the report times, the reported velocity, and
-the track angle already live here, and each client-side copy would be a
-different opinion about where an aircraft is.
+the newest reported position along the reported ground speed and track
+angle. It advances the newest reported pressure altitude along the reported
+vertical rate. Projection belongs to the core: the report times, the
+reported velocity, and the track angle already live here, and each
+client-side copy would be a different opinion about where an aircraft is.
 
-- The reported position stays available and stays authoritative. A projected
+- The reported values stay available and stay authoritative. A projected
   position is a guess between two facts. `ProjectionBasis` marks it
   `Extrapolated`, so a consumer can show a projected target differently.
+- Each snapshot carries its `ProjectionBounds`. The engine stamps the bounds
+  in force when it produces the snapshot. A consumer on the other side of a
+  process boundary projects with the producer's bounds and cannot disagree
+  with them. A snapshot without bounds gives the reported position.
 - Projection needs a fresh velocity with a ground speed and a track angle.
   Without them the reported position is the answer.
 - Projection stops at the projection window `extrapolate_max_micros`. It
   never applies to a coasting track, and it stops when the silence passes
   the coast window even before `advance_time` runs.
+- A straight projection holds the track angle constant. A turning target
+  curves away from it, and the error grows with the distance flown. The
+  distance limit `extrapolate_max_distance_m` cuts a projected leg short,
+  so a fast target projects for less time than a slow one.
+- A vertical rate declared geometric does not move a pressure altitude. The
+  two heights use different references.
 - Projection is a pure function of the snapshot and the caller-supplied
   monotonic time. It changes no state and reads no clock.
 

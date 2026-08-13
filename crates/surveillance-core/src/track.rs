@@ -15,6 +15,7 @@ use crate::cpr::CprHistory;
 use crate::freshness::TimedField;
 use crate::identity::IdentitySet;
 use crate::observation::{Callsign, Squawk, VelocityObservation, Wgs84Position};
+use crate::projection::ProjectionBounds;
 
 #[cfg(test)]
 mod tests;
@@ -236,6 +237,10 @@ pub struct TrackSnapshot {
     pub created_at_micros: u64,
     /// Monotonic measurement time of the newest applied observation.
     pub last_observed_at_micros: u64,
+    /// Projection bounds in force when the engine produced this snapshot; see
+    /// [`crate::projection`]. Absent when the producer declared none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub projection_bounds: Option<ProjectionBounds>,
 }
 
 impl TrackSnapshot {
@@ -261,6 +266,7 @@ impl TrackSnapshot {
             emitter_category: None,
             created_at_micros,
             last_observed_at_micros: created_at_micros,
+            projection_bounds: None,
         }
     }
 }

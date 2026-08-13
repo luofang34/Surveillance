@@ -205,7 +205,13 @@
           }
         },
         "created_at_micros": 1000000,
-        "last_observed_at_micros": 1500000
+        "last_observed_at_micros": 1500000,
+        "projection_bounds": {
+          "extrapolate_max_micros": 15000000,
+          "extrapolate_max_distance_m": 1000,
+          "coast_after_micros": 15000000,
+          "velocity_fresh_micros": 15000000
+        }
       }
     }
   }

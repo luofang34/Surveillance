@@ -97,6 +97,10 @@ fn validate_freshness(config: &EngineConfig) -> Result<(), EngineConfigError> {
         ("coast_after_micros", policy.coast_after_micros),
         ("remove_after_micros", policy.remove_after_micros),
         ("extrapolate_max_micros", policy.extrapolate_max_micros),
+        (
+            "extrapolate_max_distance_m",
+            policy.extrapolate_max_distance_m,
+        ),
     ] {
         if value == 0 {
             return Err(EngineConfigError::ZeroFreshnessWindow { name });

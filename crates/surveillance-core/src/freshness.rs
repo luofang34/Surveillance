@@ -150,6 +150,14 @@ pub struct FreshnessPolicy {
     /// Position projection also stops at the coasting point, whichever comes
     /// first; see [`crate::projection`].
     pub extrapolate_max_micros: u64,
+    /// Distance limit for one projected leg, in metres.
+    ///
+    /// A straight projection holds the reported track angle constant. A
+    /// turning target curves away from it, and the error grows with the
+    /// distance flown, not with the time waited. The default one kilometre
+    /// bounds the divergence of a standard-rate turn to a few hundred
+    /// metres; see [`crate::projection`].
+    pub extrapolate_max_distance_m: u64,
 }
 
 impl Default for FreshnessPolicy {
@@ -162,6 +170,7 @@ impl Default for FreshnessPolicy {
             coast_after_micros: 15_000_000,
             remove_after_micros: 60_000_000,
             extrapolate_max_micros: 15_000_000,
+            extrapolate_max_distance_m: 1_000,
         }
     }
 }

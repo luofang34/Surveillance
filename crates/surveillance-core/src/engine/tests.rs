@@ -18,6 +18,7 @@ mod configuration;
 mod integrity;
 mod lifecycle;
 mod position;
+mod projection;
 mod publication;
 mod time;
 

@@ -52,7 +52,7 @@ pub use observation::{
     PositionObservation, QualityIndicator, Squawk, TimeBasis, TrafficObservation,
     VelocityObservation, VerticalRateSource, Wgs84Position,
 };
-pub use projection::{PositionProjection, ProjectionBasis, project_position};
+pub use projection::{PositionProjection, ProjectionBasis, ProjectionBounds, project_position};
 pub use schema::{
     CURRENT_TRACK_SCHEMA_VERSION, TimeCorrespondence, TimeCorrespondenceError, TrackRecord,
     TrackRecordDecodeError, TrackRecordHeader, TrackSchemaError, TrackStreamHeader,
