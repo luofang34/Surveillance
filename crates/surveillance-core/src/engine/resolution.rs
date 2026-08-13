@@ -1,6 +1,7 @@
 //! Track lookup and creation for classified wire identities.
 
 use crate::observation::TrafficObservation;
+use crate::projection::ProjectionBounds;
 use crate::track::{TrackId, TrackKey, TrackSnapshot, TrackState};
 
 use super::publication::SnapshotPublisher;
@@ -52,6 +53,7 @@ impl SurveillanceEngine {
             TrackSnapshot::new(id, observation.key, observation.time.received_at_micros);
         snapshot.last_observed_at_micros = observation.time.observed_at_micros;
         snapshot.ownship_shadow = self.ownship.contains(&observation.key);
+        snapshot.projection_bounds = Some(ProjectionBounds::from_freshness(&self.config.freshness));
         self.tracks.insert(id, TrackState::from(snapshot));
         self.keys.insert(observation.key, id);
         Ok((id, true))

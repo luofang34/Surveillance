@@ -11,12 +11,12 @@ use core::cell::Cell;
 
 use surveillance_core::{
     AddressNamespace, AirGroundState, Band, CURRENT_TRACK_SCHEMA_VERSION, Callsign, CallsignKind,
-    DeliveryPath, EmergencyState, FieldProvenance, FieldQuality, ObservationOrigin,
-    ObservationTime, PositionStatus, ProducerInstanceId, RemovalReason, SnapshotRevision,
-    SourceRef, Squawk, TimeBasis, TimeCorrespondence, TimedField, TrackDelta, TrackId, TrackKey,
-    TrackPhase, TrackRecord, TrackRecordDecodeError, TrackRecordHeader, TrackSchemaError,
-    TrackSnapshot, TrackSnapshotHandle, TrackStreamHeader, VelocityObservation, VerticalRateSource,
-    Wgs84Position, decode_track_record_with,
+    DeliveryPath, EmergencyState, FieldProvenance, FieldQuality, FreshnessPolicy,
+    ObservationOrigin, ObservationTime, PositionStatus, ProducerInstanceId, ProjectionBounds,
+    RemovalReason, SnapshotRevision, SourceRef, Squawk, TimeBasis, TimeCorrespondence, TimedField,
+    TrackDelta, TrackId, TrackKey, TrackPhase, TrackRecord, TrackRecordDecodeError,
+    TrackRecordHeader, TrackSchemaError, TrackSnapshot, TrackSnapshotHandle, TrackStreamHeader,
+    VelocityObservation, VerticalRateSource, Wgs84Position, decode_track_record_with,
 };
 
 const CREATED_FIXTURE: &str = include_str!("fixtures/track_v4_created.json");
@@ -97,6 +97,8 @@ fn fixture_record() -> TrackRecord {
         adsb_provenance(),
     ));
     snapshot.last_observed_at_micros = 1_500_000;
+    snapshot.projection_bounds =
+        Some(ProjectionBounds::from_freshness(&FreshnessPolicy::default()));
     TrackRecord::new(TrackDelta::Created(TrackSnapshotHandle::new(
         ProducerInstanceId::new(11),
         SnapshotRevision::new(29),
