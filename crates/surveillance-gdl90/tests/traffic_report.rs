@@ -135,6 +135,19 @@ fn uses_specification_codes_for_absent_optional_values() {
 }
 
 #[test]
+fn generic_airborne_state_sets_the_airborne_bit() {
+    let namespace = AddressNamespace::Icao;
+    let mut snapshot = required_snapshot();
+    snapshot.air_ground = Some(timed(AirGroundState::Airborne, namespace));
+    let mut output = [0_u8; GDL90_TRAFFIC_REPORT_LEN];
+
+    encode_traffic_report(&snapshot, TrafficAlertStatus::NoAlert, &mut output)
+        .expect("generic airborne state is representable");
+
+    assert_eq!(output[12] & 0x08, 0x08);
+}
+
+#[test]
 fn returns_policy_metadata_without_suppressing_the_report() {
     let mut snapshot = required_snapshot();
     snapshot.key.namespace = AddressNamespace::SurfaceVehicle;

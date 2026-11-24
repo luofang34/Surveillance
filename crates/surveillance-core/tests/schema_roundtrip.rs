@@ -19,13 +19,13 @@ use surveillance_core::{
     VelocityObservation, VerticalRateSource, Wgs84Position, decode_track_record_with,
 };
 
-const CREATED_FIXTURE: &str = include_str!("fixtures/track_v4_created.json");
+const CREATED_FIXTURE: &str = include_str!("fixtures/track_v5_created.json");
 /// A record written before origin, delivery, and time were separated.
 const SUPERSEDED_FIXTURE: &str = include_str!("fixtures/track_v1_created_superseded.json");
 /// A record written before snapshots carried publication metadata.
 const VERSION_2_FIXTURE: &str = include_str!("fixtures/track_v2_created.json");
 /// A non-radio record: the wire forms the ADS-B fixture never reaches.
-const PROVIDER_FIXTURE: &str = include_str!("fixtures/track_v4_provider.json");
+const PROVIDER_FIXTURE: &str = include_str!("fixtures/track_v5_provider.json");
 
 const KEY: TrackKey = TrackKey::new(AddressNamespace::Icao, 0x00AC_82EC);
 const TRACK_FILE_KEY: TrackKey = TrackKey::new(AddressNamespace::TisbTrackFile, 66);
@@ -85,7 +85,7 @@ fn fixture_record() -> TrackRecord {
         adsb_provenance(),
     ));
     snapshot.air_ground = Some(TimedField::new(
-        AirGroundState::Subsonic,
+        AirGroundState::Airborne,
         ObservationTime::local(1_500_000),
         FieldQuality::default(),
         adsb_provenance(),
@@ -180,7 +180,7 @@ fn absent_fields_stay_absent_on_the_wire() {
 #[test]
 fn unsupported_versions_fail_with_a_typed_error() {
     let unsupported =
-        CREATED_FIXTURE.replacen("\"schema_version\": 4", "\"schema_version\": 99", 1);
+        CREATED_FIXTURE.replacen("\"schema_version\": 5", "\"schema_version\": 99", 1);
     let record: TrackRecord =
         serde_json::from_str(&unsupported).expect("payload shape still decodes");
 
@@ -246,7 +246,7 @@ fn a_version_2_record_is_refused_before_its_snapshot_is_interpreted() {
 
 #[test]
 fn the_schema_before_position_status_is_refused_by_version() {
-    let prior = CREATED_FIXTURE.replacen("\"schema_version\": 4", "\"schema_version\": 3", 1);
+    let prior = CREATED_FIXTURE.replacen("\"schema_version\": 5", "\"schema_version\": 3", 1);
     let header: TrackRecordHeader =
         serde_json::from_str(&prior).expect("the version header decodes without the payload");
 

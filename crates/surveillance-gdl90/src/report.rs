@@ -286,7 +286,9 @@ fn representative_origin(snapshot: &TrackSnapshot) -> Option<ObservationOrigin> 
 
 fn miscellaneous(snapshot: &TrackSnapshot) -> Result<u8, TrafficReportError> {
     let airborne = match snapshot.air_ground.as_ref().map(|field| field.value) {
-        Some(AirGroundState::Subsonic | AirGroundState::Supersonic) => true,
+        Some(AirGroundState::Airborne | AirGroundState::Subsonic | AirGroundState::Supersonic) => {
+            true
+        }
         Some(AirGroundState::Ground) => false,
         Some(AirGroundState::Reserved) => return Err(TrafficReportError::ReservedAirGround),
         None if matches!(

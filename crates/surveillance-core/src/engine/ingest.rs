@@ -9,7 +9,7 @@
 
 use crate::engine::{FieldDisposition, FieldOutcomes};
 use crate::freshness::{FieldProvenance, FreshnessPolicy, TimedField};
-use crate::fusion::{FieldUpdate, fuse};
+use crate::fusion::{FieldUpdate, fuse, yields_to_scaling_regime};
 use crate::observation::TrafficObservation;
 use crate::track::TrackSnapshot;
 
@@ -52,15 +52,7 @@ pub(crate) fn apply_fields(
                     policy.identity_fresh_micros,
                 ))
             }),
-        air_ground: observation
-            .air_ground
-            .map_or(FieldDisposition::NotSupplied, |value| {
-                disposition(fuse(
-                    &mut snapshot.air_ground,
-                    timed(observation, value),
-                    policy.identity_fresh_micros,
-                ))
-            }),
+        air_ground: apply_air_ground(snapshot, observation, policy),
         emergency: observation
             .emergency
             .map_or(FieldDisposition::NotSupplied, |value| {
@@ -121,6 +113,24 @@ fn apply_velocity(
         timed(observation, velocity),
         policy.velocity_fresh_micros,
     ))
+}
+
+fn apply_air_ground(
+    snapshot: &mut TrackSnapshot,
+    observation: &TrafficObservation,
+    policy: &FreshnessPolicy,
+) -> FieldDisposition {
+    let Some(state) = observation.air_ground else {
+        return FieldDisposition::NotSupplied;
+    };
+    let candidate = timed(observation, state);
+    let window = policy.identity_fresh_micros;
+    if let Some(current) = snapshot.air_ground.as_ref()
+        && yields_to_scaling_regime(current, &candidate, window)
+    {
+        return FieldDisposition::Rejected;
+    }
+    disposition(fuse(&mut snapshot.air_ground, candidate, window))
 }
 
 fn apply_callsign(
