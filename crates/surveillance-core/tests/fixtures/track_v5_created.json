@@ -1,5 +1,5 @@
 {
-  "schema_version": 4,
+  "schema_version": 5,
   "delta": {
     "kind": "created",
     "data": {
@@ -159,7 +159,7 @@
           }
         },
         "air_ground": {
-          "value": "subsonic",
+          "value": "airborne",
           "time": {
             "received_at_micros": 1500000,
             "observed_at_micros": 1500000,

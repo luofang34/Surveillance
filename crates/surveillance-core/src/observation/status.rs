@@ -79,6 +79,8 @@ impl EmitterCategory {
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AirGroundState {
+    /// Airborne where the source does not declare a velocity scaling regime.
+    Airborne,
     /// Airborne with subsonic velocity scaling.
     Subsonic,
     /// Airborne with supersonic velocity scaling.
@@ -97,7 +99,7 @@ impl AirGroundState {
     #[must_use]
     pub fn is_airborne(self) -> Option<bool> {
         match self {
-            Self::Subsonic | Self::Supersonic => Some(true),
+            Self::Airborne | Self::Subsonic | Self::Supersonic => Some(true),
             Self::Ground => Some(false),
             Self::Reserved => None,
         }

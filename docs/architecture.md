@@ -328,6 +328,15 @@ and provenance (origin, namespace, source reference). Rules:
 - Age is always the pessimistic end of any timing uncertainty, so a loosely
   mapped provider time is treated as older than a tightly mapped one rather
   than as equally current.
+- `AirGroundState` has three airborne values. `Subsonic` and `Supersonic`
+  are for a link that declares its velocity scaling. `Airborne` is for a
+  source that declares only that the target is in the air. The 1090 MHz
+  adapter sets `Airborne` from an airborne position message and `Ground`
+  from a surface position message.
+- An `Airborne` report does not replace a current `Subsonic` or `Supersonic`
+  value from an origin of equal rank. The two reports agree, and the current
+  value says more. This rule prevents a value change at each reception of a
+  target that transmits on two links.
 - Repeated content from one source updates freshness without a delta. A
   source, origin, or quality change emits an update so a delta-only consumer
   has the current field metadata.

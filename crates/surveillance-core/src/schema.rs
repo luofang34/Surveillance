@@ -20,7 +20,7 @@ use crate::track::TrackDelta;
 mod tests;
 
 /// Schema version written by this library.
-pub const CURRENT_TRACK_SCHEMA_VERSION: u16 = 4;
+pub const CURRENT_TRACK_SCHEMA_VERSION: u16 = 5;
 
 /// Decode a record in two phases with caller-selected format decoders.
 ///

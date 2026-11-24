@@ -105,8 +105,27 @@ fn a_direct_airborne_position_normalizes_to_an_icao_key_and_a_cpr_frame() {
         "the frame carries a barometric altitude"
     );
     assert_eq!(
+        observation.air_ground,
+        Some(surveillance_core::AirGroundState::Airborne)
+    );
+    assert_eq!(
         observation.quality.nic, None,
         "a position message carries a NIC supplement bit, not a NIC category"
+    );
+}
+
+#[test]
+fn a_surface_position_declares_ground_without_inferring_a_reference_position() {
+    let observation =
+        normalize_1090("8C4841753A9A153237AEF0F275BE", 6_000).expect("surface frame normalizes");
+
+    assert!(matches!(
+        observation.position,
+        Some(PositionObservation::CprSurface(_))
+    ));
+    assert_eq!(
+        observation.air_ground,
+        Some(surveillance_core::AirGroundState::Ground)
     );
 }
 

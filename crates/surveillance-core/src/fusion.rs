@@ -25,6 +25,12 @@
 //!    instant are resolved by quality, where better means no indicator is
 //!    worse and at least one is better.
 //!
+//! Air/ground state has one more rule, [`yields_to_scaling_regime`]. A
+//! generic airborne report agrees with a fresh subsonic or supersonic report
+//! of equal [`origin_rank`] and says less, so it does not replace it. Without
+//! this rule a target received on two links would change value at each
+//! reception.
+//!
 //! Declared quality deliberately does not override origin. A source's own
 //! integrity indicators are exactly what a poor source would overstate, so
 //! they separate peers rather than promote a weaker origin above a stronger
@@ -41,7 +47,7 @@
 //! of [`crate::identity`] and the engine's association policy.
 
 use crate::freshness::{FieldQuality, TimedField};
-use crate::observation::ObservationOrigin;
+use crate::observation::{AirGroundState, ObservationOrigin};
 
 #[cfg(test)]
 mod tests;
@@ -129,6 +135,30 @@ pub fn fuse<T: PartialEq>(
     } else {
         FieldUpdate::Refreshed
     }
+}
+
+/// Whether a generic airborne `candidate` must leave `current` in place.
+///
+/// `current` must be a fresh subsonic or supersonic report from an origin of
+/// equal rank. A higher rank keeps its precedence, and a stale report loses
+/// to any candidate, as in [`fuse`].
+#[must_use]
+pub(crate) fn yields_to_scaling_regime(
+    current: &TimedField<AirGroundState>,
+    candidate: &TimedField<AirGroundState>,
+    fresh_window_micros: u64,
+) -> bool {
+    let now_micros = candidate
+        .time
+        .received_at_micros
+        .max(current.time.received_at_micros);
+    candidate.value == AirGroundState::Airborne
+        && matches!(
+            current.value,
+            AirGroundState::Subsonic | AirGroundState::Supersonic
+        )
+        && origin_rank(candidate.provenance.origin) == origin_rank(current.provenance.origin)
+        && current.is_fresh(now_micros, fresh_window_micros)
 }
 
 fn accepts_replacement<T>(

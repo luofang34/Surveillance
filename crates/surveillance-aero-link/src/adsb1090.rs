@@ -5,9 +5,10 @@ use aero_link::{
     ExtendedSquitterMessage, IcaoAddressStatus, ModeSMessage, OperationalStatus, TrafficProjection,
 };
 use surveillance_core::{
-    AddressNamespace, AdsbIntegrityDeclaration, AdsbPositionIntegrity, AdsbVersion, Band, Callsign,
-    CprFormat, CprFrame, EmitterCategory, HeadingReference, ObservationOrigin, ObservationTime,
-    PositionObservation, Squawk, TrackKey, TrafficObservation, VelocityObservation,
+    AddressNamespace, AdsbIntegrityDeclaration, AdsbPositionIntegrity, AdsbVersion, AirGroundState,
+    Band, Callsign, CprFormat, CprFrame, EmitterCategory, HeadingReference, ObservationOrigin,
+    ObservationTime, PositionObservation, Squawk, TrackKey, TrafficObservation,
+    VelocityObservation,
 };
 
 use crate::NormalizeError;
@@ -139,6 +140,7 @@ fn apply_squitter(
                 emitter_category(identification.type_code, identification.emitter_category);
         }
         ExtendedSquitterMessage::AirbornePosition(position) => {
+            observation.air_ground = Some(AirGroundState::Airborne);
             observation.position = Some(PositionObservation::CprAirborne(cpr_frame(
                 position.odd_cpr,
                 position.cpr_latitude,
@@ -151,6 +153,7 @@ fn apply_squitter(
             )?);
         }
         ExtendedSquitterMessage::SurfacePosition(position) => {
+            observation.air_ground = Some(AirGroundState::Ground);
             observation.position = Some(PositionObservation::CprSurface(cpr_frame(
                 position.odd_cpr,
                 position.cpr_latitude,
