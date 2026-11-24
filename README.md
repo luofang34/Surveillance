@@ -60,4 +60,5 @@ scripts/ci.sh                # boundaries, size, fmt, clippy, tests, docs, relea
 scripts/check-no-std.sh      # embedded and Wasm target matrix
 scripts/check-boundaries.sh  # the engine links no radio decoder
 scripts/check-source-size.sh # Rust source file limits
+scripts/check-doc-crates.sh  # documents name only crates that exist
 ```

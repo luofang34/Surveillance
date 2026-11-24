@@ -266,9 +266,10 @@ boundary. The engine itself never reads a wall clock.
 
 ## GeoLibre boundary
 
-An optional `surveillance-geolibre` adapter converts `TrackDelta` values into
-aircraft feature upserts, stale/coasting changes, and removals. It does not
-import a renderer into CPR, fusion, identity, or track modules.
+The optional `surveillance-geojson` adapter converts each applicable
+`TrackDelta` into one aircraft feature change: an upsert, a stale change, or a
+removal. The adapter has no renderer dependency. Do not import a renderer into
+the CPR, fusion, identity, or track modules.
 
 Weather features are produced by a separate weather-to-GeoLibre adapter. The
 application may display aircraft and weather layers together, but that UI
@@ -315,7 +316,8 @@ crates/
       freshness.rs
       projection.rs
   surveillance-gdl90/
-  surveillance-geolibre/
+  surveillance-geojson/
+  surveillance-replay/
 ```
 
 `lib.rs` contains only crate documentation, module declarations, and public
