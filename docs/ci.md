@@ -6,7 +6,7 @@ Two scripts define every check, and both local development and hosted CI run
 exactly them, so the two cannot drift:
 
 ```sh
-scripts/ci.sh            # fmt --check, clippy -D warnings, tests, rustdoc, release build
+scripts/ci.sh            # boundaries, size, crate names, fmt, clippy, tests, rustdoc, release build
 scripts/check-no-std.sh  # thumbv6m, thumbv8m.main, riscv32imac, wasm32-unknown-unknown
 ```
 
@@ -31,10 +31,11 @@ compiler reads it. Only the second pass runs a gated test.
 
 ## The private dependency
 
-`surveillance-core` depends on `aero-link` through a path dependency
-(`../aero-link`), and that repository is private. A hosted runner therefore
-cannot build anything until it has read access to a second repository, which
-is the whole reason this workflow needs a credential at all.
+`surveillance-aero-link` depends on `aero-link` through a path dependency
+(`../aero-link`). That repository is private. The workspace contains this
+adapter, so a hosted runner must have read access to `aero-link` before it
+can build the workspace. This is the reason the workflow uses a credential.
+`surveillance-core` does not depend on `aero-link`.
 
 ### Credential
 

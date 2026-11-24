@@ -64,7 +64,7 @@ surveillance-core ---- no_std + alloc, source-neutral, depends on no decoder
         |------ surveillance (umbrella re-export; adapter is opt-in)
         |------ surveillance-gdl90     (TrackSnapshot -> GDL 90 payloads)
         |------ surveillance-geojson   (TrackDelta -> typed aircraft features)
-        |------ host testing app       (planned: replay CLI; std/host gated)
+        |------ surveillance-replay    (host application; recorded receptions -> track output)
 ```
 
 - `surveillance-core` depends only on `libm`, `serde`, and `thiserror`. It
